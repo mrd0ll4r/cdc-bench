@@ -68,3 +68,27 @@ Make sure `$FAST_DATA_PATH` (as per [`utils.sh`](utils.sh)) is mounted as `tmpfs
 ## Experiments
 
 Once you have all datasets setup, simply execute `run-all-experiments.sh` from the repository root.
+
+## RAM parameter modes
+
+`python3 scripts/get-ram-param.py TARGET` retains the historical calculation and
+SciPy solver used by the experiment scripts. `--mode legacy` makes this explicit.
+For targets 512, 1024, 2048, 4096, and 8192 B, both forms return horizons 327, 780,
+1792, 3840, and 7936. This mode is for reproducing the published configurations;
+its inverse-of-mean-success-probability expression is not an exact mean length.
+
+`python3 scripts/get-ram-param.py TARGET --mode exact` instead averages conditional
+geometric waiting times over the maximum of `h` IID uniform bytes. The model
+includes the first matching byte in the chunk and assumes an unbounded stream.
+It returns the positive integer horizon whose theoretical mean is closest to the
+target (smaller horizon on an exact tie). For the same targets it returns 300,
+774, 1792, 3840, and 7936. This mode uses only the Python standard library.
+
+The experiment command generator continues to use the default historical mode.
+Do not relabel historical results as measurements with the corrected horizons.
+For new experiments, record the chosen mode and check the chunker's boundary
+indexing convention against this theoretical definition before comparing means;
+the script does not change the chunker or account for terminal chunks.
+
+Run numerical and compatibility checks with
+`python3 -m unittest discover -s scripts/tests -p 'test_ram_params.py' -v`.
