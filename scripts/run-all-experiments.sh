@@ -45,24 +45,6 @@ wait $(jobs -p)
 
 ########################
 
-echo "Creating a copy of the chunk size distribution measurements filtered by target_chunk_size=770..."
-
-for f in csv/csd_*.csv.gz; do
-        # skip algorithm specific files (should not exist a this point but just to be sure)
-        if [[ "$f" == csv/csd_*_*.csv.gz ]]; then
-                continue
-        fi
-        echo "filtering $f..."
-        header=$(zcat "$f" | head -n 1)
-        b=$(basename "$f" ".csv.gz")
-        output_file="csv/${b}_770.csv"
-        echo "output to $output_file"
-        echo "$header" > "$output_file"
-        { zcat "$f" | awk -v output_file="$output_file" -F ',' '$3 == 770 {print >> output_file}'; } >/dev/null 2>&1
-        echo "compressing..."
-        gzip -9 "$output_file"
-done
-
 echo "Splitting chunk size distribution measurements by algorithm..."
 
 for f in csv/csd_*.csv.gz; do

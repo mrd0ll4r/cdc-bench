@@ -1,4 +1,7 @@
-"""Reproduces Table V: PCI parameters (w, theta) per target chunk size.
+"""Searches PCI parameters (w, theta) for the five publication targets.
+
+This current seeded search does not establish the historical calibration seed
+or guarantee the exact published pairs; scripts/utils.sh preserves those pairs.
 
 PCI cuts when the popcount of a w-byte window reaches theta bits; the window
 resets w bytes past a boundary. No closed form for (w, theta) -> mean chunk
@@ -11,7 +14,7 @@ Search:  w in [30, 65] bytes, theta in [4w, 8w] bits (bisected, since the mean
 import numpy as np
 
 SEED = 20250901
-TARGETS = [512, 770, 1024, 2048, 4096, 5482, 8192]
+TARGETS = [512, 1024, 2048, 4096, 8192]
 W_RANGE = range(30, 66)
 POP = np.unpackbits(np.arange(256, dtype=np.uint8)[:, None], axis=1).sum(1)
 
