@@ -21,3 +21,12 @@ They roughly correspond to the sections of the paper:
 - `eval_perf.R` evaluates computational performance, i.e., throughput and microarchitectural performance metrics.
 - `eval_csd.R` evaluates chunk size distributions.
 - `eval_dedup.R` evaluates deduplication.
+
+## Achieved-size and metadata-adjusted analysis
+
+Use [`../analysis/dedup_pareto.py`](../analysis/dedup_pareto.py) with the
+[matched-run input contract](../analysis/README.md) for the rebuttal's achieved-size
+analysis. It requires all emitted chunk counts for the corresponding algorithm,
+configuration and dataset identity; the historical dedup CSV alone is insufficient.
+The R script retains configured-target plots but no longer generates the obsolete
+Rabin-only metadata chart with hard-coded PDF/LNX dataset sizes.
