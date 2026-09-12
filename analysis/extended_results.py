@@ -338,7 +338,7 @@ def export(manifest_path, output, allow_missing=False):
         }
         write_csv(output / name, rows, empty_fields[name])
     for name, content in render_tables(summaries, missing).items():
-        (output / name).write_text(content + '\n')
+        (output / name).write_text(content.rstrip() + '\n')
     provenance = dict(status='RESULTS PENDING / AUTHOR INPUT REQUIRED' if missing else 'complete',
                       expected_settings=len(GRID), validated_settings=len(summaries), missing_settings=missing,
                       chunk_quantile_convention='inverse ECDF / nearest rank: x[ceil(n*p)-1]',
