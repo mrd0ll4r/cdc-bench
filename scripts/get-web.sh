@@ -2,7 +2,8 @@
 
 source scripts/utils.sh
 
-# Script to download images of the nytimes.com website for every day from 2014 to 2024.
+# Request one nytimes.com Internet Archive snapshot per day in January 2024.
+# Requested dates are selectors; resolved captures and available resources may differ.
 # We don't `set -e` on purpose, as some requests to external websites fail.
 
 mkdir -p "$DATA_PATH/web"

@@ -141,7 +141,7 @@ Options:
 MSRV: `nightly`, because we use `#![feature(generic_const_exprs)]`.
 See the tracking issue for that [here](https://github.com/rust-lang/rust/issues/76560).
 
-The code is built with link-time optimization and `codegen-units=1` for the `release` profile, which is used to measure performance.
+The current `release` profile specifies thin link-time optimization (`lto="thin"`) and `codegen-units=1`. The Docker builder uses `nightly-2026-06-01`, while `rust-toolchain.toml` and the host command below select a moving nightly. These current settings do not establish the compiler version used for the published measurements; see [reproducibility and the historical run checklist](REPRODUCIBILITY.md).
 This will take a while to build, but should produce fast code.
 Furthermore, binaries used for testing are produced with `RUSTFLAGS="-C target-cpu=native"`.
 
