@@ -1,8 +1,12 @@
 # Parameter calibration and historical reproduction
 
 The publication targets are 512, 1024, 2048, 4096, and 8192 bytes. The parameter
-functions in `scripts/utils.sh` preserve the current artifact settings. Historical
-run commands must be checked against those settings before claiming exact reproduction. Candidate-search outputs must not overwrite those settings.
+functions in `scripts/utils.sh` preserve the current artifact settings. The MII
+benchmark mapping reconstructed below differs from the current helper at target
+512. Execution logs are unavailable; the reconstruction is supported by code
+history and manuscript summaries, not a recovered per-run command record.
+No additional experiments are planned or needed for the descriptive residuals
+reported here. Candidate-search outputs must not overwrite benchmark settings.
 The former 770/5482 exploratory rows are excluded from current PCI searches and
 the legacy 770-only export was removed; archived data are retained.
 
@@ -26,12 +30,43 @@ Rounded predictions for `w=5,6,7,8` are 147, 877, 6248, 51341. Selection minimiz
 absolute distance to the rounded lookup value; existing loop order breaks ties
 toward the smaller window. These are predictions, not measurements.
 
-AUTHOR INPUT REQUIRED: for target 512, distances to 147 and 877 both equal 365,
-so the helper chooses w=5. The published RAND table instead reports a mean of
-887 B at this target (also reported at 1024/2048), inconsistent with the w=5
-prediction. Preserve the helper and published results; recover the historical
-command record before assigning either window to that result. The table above
-states current helper behavior, not a verified reconstruction of all paper runs.
+## MII benchmark mapping reconstructed from repository history
+
+The benchmark-era mapping is **6, 6, 6, 7, 7** for the five targets:
+
+- [Artifact commit 62268dc](https://github.com/mrd0ll4r/cdc-algorithm-tester/blob/62268dc/scripts/utils.sh)
+  (March 17, 2025) uses predictions 130/770 for w=5/6. At target 512,
+  w=6 is closer. Executing this revision's selection function returns 6,6,6,7,7.
+- [Manuscript commit f68301e](https://github.com/mg98/cdc-investigation-tex/commit/f68301e)
+  (March 19, 2025) already reports the RAND mean 887 B for the three smaller
+  publication targets and 6242 B for the two larger ones.
+- [Artifact commit 18dd4e0](https://github.com/mrd0ll4r/cdc-algorithm-tester/commit/18dd4e02293af7ce5552cf43ea2df046573848fd)
+  (September 9, 2025) changes the lookup to 147/877. Both are 365 B from target
+  512, so the existing tie rule now selects w=5. Its parent still selects w=6.
+
+This explains the mismatch with the current helper. The table above describes
+the current helper, not the benchmark mapping. The summaries support a historical
+reconstruction but do not establish a particular executable revision for each run.
+Reproducing the paper's reconstructed MII settings requires explicit windows
+6,6,6,7,7; the current default helper does not reproduce its 512-byte configuration.
+No helper behavior or existing result is changed by this documentation update.
+
+## Residuals available from existing summaries
+
+The existing manuscript RAND table reports AE means 512,1024,2048,4095,8191 B
+for horizons 348,793,1793,3840,7936. The approximation h+256 exceeds these
+rounded summaries by 92,25,1,1,1 B. The first two horizons are outside its
+recommended regime. Differences at the other horizons are descriptive, not an
+error bound.
+
+For reconstructed MII windows 6 and 7, the table reports means 887 and 6242 B.
+Using unrounded formula predictions, `(prediction / reported_mean - 1) * 100`
+is approximately -13.2%/-12.2% without the 1.14 factor and -1.2%/+0.1% with it.
+These are approximate residuals from rounded calibration summaries, not an
+independent validation set. The source is the manuscript's
+`tab/csd_means_sd_full.tex`; model predictions remain separate from measurements.
+There are no reported empirical residuals here for windows 5 and 8, and no new
+runs are requested to fill them.
 
 In `src/main.rs`, Rabin and Buzhash use `round(log2(target-32))`; Gear uses
 `round(log2(target))`. Rust floating-point rounding sends halfway cases away
@@ -57,10 +92,10 @@ both rules. No algorithm implementation or historical parameter was changed.
 - `scripts/get-rand.sh`: obtains bytes from `/dev/urandom`; it does not record a
   seed and does not currently generate the SeqCDC script's small input file.
 
-AUTHOR INPUT REQUIRED: historical calibration input identity/checksum, output
-records, AE seed if recorded, provenance of the MII fit, and SeqCDC final
-selection record. Do not retroactively describe the current PCI seed as the
-historical seed without those records.
+The available scripts do not establish the historical calibration input
+identity/checksum, AE seed, provenance of the MII fit, or final SeqCDC selection
+record. These are provenance limitations, not requests for replacement runs.
+Do not retroactively describe the current PCI seed as the historical seed.
 
 ## Residual report, without running experiments
 
@@ -74,6 +109,11 @@ Provenance must identify the source run/input and chunk inclusion policy. Supply
 one mean per configuration, with terminal chunks handled consistently. Duplicate,
 unsupported, non-finite, non-positive, or unprovenanced measurements are rejected.
 Partial files are accepted; omitted configurations remain visibly pending.
+This is a generic utility convention, not a publication requirement to collect
+new observations. The manuscript analysis above is limited to existing rounded
+summaries; it does not claim raw-data precision or a recovered chunk-inclusion
+record. Its unavailable-window results are explicitly outside the empirical
+analysis, rather than promised future measurements.
 
 The signed prediction error is `prediction/mean - 1`; AE target error is
 `mean/target - 1`. MII correction error compares the same window and measurement
