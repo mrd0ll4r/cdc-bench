@@ -76,21 +76,19 @@ for (dataset_name in unique(d$dataset)) {
                size = 1.5, fill = "white") +  # Increased jitter
     ylab("Dedup. Ratio") +
     xlab("Target Chunk Size") +
-    theme(legend.position = "none") + 
+    dedup_plot_theme() +
     guides(color = guide_legend(nrow = 1), 
            linetype = guide_legend(nrow = 1), 
            shape = guide_legend(nrow = 1)) +  
     scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", 
                                      "longdash", "twodash", "13", "44", "1343")) +
-    dedup_algorithm_scales() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    dedup_algorithm_scales()
   
   print_plot(p, paste("dedup_overview", dataset_name, sep="_"), height=2, width=2)
 }
 
-p %>% 
-  get_legend_plot(9) %>% 
-  print_plot("dedup_overview_legendonly", height=1, width=6)
+dedup_legend_plot(p) %>%
+  print_plot("dedup_overview_legendonly", height=1, width=7)
 
 rm(p)
 gc()

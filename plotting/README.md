@@ -49,10 +49,10 @@ The existing `print_plot()` exporter writes separate TeX/PNG assets:
 
 - `fig/dedup_pareto_code`, `fig/dedup_pareto_web`, `fig/dedup_pareto_vmb`,
   and `fig/dedup_pareto_db`: each 2 by 2 inches, without a legend.
-- `fig/dedup_pareto_legendonly`: shared legend, 6 by 1 inches.
+- `fig/dedup_pareto_legendonly`: shared legend, 7 by 1 inches.
 
-The color/shape scales are shared with the configured-target deduplication
-figures. The CSV `tab/dedup-adjusted.csv` contains the 180 configurations at 28 B.
+The explicit 11-point theme, color/shape scales, and legend exporter are shared with the configured-target deduplication
+figures. Ratio values are displayed as fractions, matching `dedup_overview`. The CSV `tab/dedup-adjusted.csv` contains the 180 configurations at 28 B.
 
 Run the analysis tests from the repository root (including DuckDB integration):
 

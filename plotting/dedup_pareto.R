@@ -98,20 +98,29 @@ dedup_algorithm_scales <- function() list(
   ggplot2::scale_color_manual(values=DEDUP_COLORS,limits=DEDUP_LABELS,drop=FALSE),
   ggplot2::scale_shape_manual(values=DEDUP_SHAPES,limits=DEDUP_LABELS,drop=FALSE))
 
+# Match the checked-in dedup_overview exports explicitly, independent of the
+# current R session theme (11 pt titles, 8.8 pt ticks, 5.5 pt outer margins).
+dedup_plot_theme <- function() {
+  ggplot2::theme_bw(base_size=11) +
+    ggplot2::theme(legend.position="none",axis.text.x=ggplot2::element_text(angle=45,hjust=1))
+}
+
 plot_dedup_pareto <- function(results, dataset) {
   x <- results[results$dataset == dataset,,drop=FALSE]
   x$algorithm <- factor(unname(PARETO_ALGORITHMS[x$algorithm]),levels=DEDUP_LABELS)
-  ggplot2::ggplot(x,ggplot2::aes(mean_chunk_size,adjusted_savings*100)) +
+  ggplot2::ggplot(x,ggplot2::aes(mean_chunk_size,adjusted_savings)) +
     ggplot2::geom_point(ggplot2::aes(colour=algorithm,shape=algorithm),size=1.5,fill="white") +
     ggplot2::geom_point(data=x[x$nondominated,,drop=FALSE],shape=1,size=3,colour="black",show.legend=FALSE) +
     ggplot2::scale_x_log10() + dedup_algorithm_scales() +
     ggplot2::labs(x="Mean chunk size (B)",y="Dedup. Ratio",colour=NULL,shape=NULL) +
-    ggplot2::theme(legend.position="none",axis.text.x=ggplot2::element_text(angle=45,hjust=1)) +
+    dedup_plot_theme() +
     ggplot2::guides(colour=ggplot2::guide_legend(nrow=1),shape=ggplot2::guide_legend(nrow=1))
 }
 
-pareto_legend_plot <- function(p) {
-  grobs <- ggplot2::ggplotGrob(p + ggplot2::theme(legend.position="bottom"))
+dedup_legend_plot <- function(p) {
+  grobs <- ggplot2::ggplotGrob(p + ggplot2::theme(
+    legend.position="bottom",legend.title=ggplot2::element_blank(),
+    legend.text=ggplot2::element_text(size=10),legend.direction="horizontal"))
   ix <- which(grepl("^guide-box",grobs$layout$name) &
                 vapply(grobs$grobs,function(g) inherits(g,"gtable"),logical(1)))
   legend <- grobs$grobs[[ix[1]]]
@@ -130,6 +139,6 @@ run_dedup_pareto <- function(dedup, means, output_dir="tab", plot_writer=print_p
     p <- plot_dedup_pareto(results,dataset)
     plot_writer(p,paste0("dedup_pareto_",dataset),width=2,height=2)
   }
-  plot_writer(pareto_legend_plot(p),"dedup_pareto_legendonly",width=6,height=1)
+  plot_writer(dedup_legend_plot(p),"dedup_pareto_legendonly",width=7,height=1)
   invisible(list(results=results,coverage=matched))
 }

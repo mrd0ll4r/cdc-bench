@@ -28,7 +28,7 @@ test_that("negative savings remain visible", {
   m$mean_chunk_size <- 10; m$dedup_ratio <- .2
   r <- calculate_dedup_pareto(m)
   expect_equal(r$adjusted_savings,-2.6)
-  expect_equal(ggplot_build(plot_dedup_pareto(r,"code"))$data[[1]]$y,-260)
+  expect_equal(ggplot_build(plot_dedup_pareto(r,"code"))$data[[1]]$y,-2.6)
 })
 test_that("missing or invalid inputs stop generation and retain diagnostics", {
   writer <- function(...) stop("must not plot")
@@ -61,10 +61,16 @@ test_that("separate figures and legend use the existing algorithm coding", {
   expect_equal(built$plot$scales$get_scales("shape")$map(DEDUP_LABELS),old_scales$get_scales("shape")$map(DEDUP_LABELS))
   expect_equal(nrow(p$data),45)
   expect_equal(p$theme$legend.position,"none")
+  expect_equal(p$theme$text$size,11)
+  expect_equal(ggplot2::calc_element("axis.text.x",p$theme)$size,8.8)
+  expect_equal(ggplot2::calc_element("axis.title.x",p$theme)$size,11)
+  previous_theme <- theme_set(theme_bw(20))
+  expect_equal(plot_dedup_pareto(r,"code")$theme$text$size,11)
+  theme_set(previous_theme)
   names <- character()
   writer <- function(plot,name,width,height) {
     expect_s3_class(ggplot_build(plot),"ggplot_built")
-    if (grepl("legendonly",name)) expect_equal(c(width,height),c(6,1)) else expect_equal(c(width,height),c(2,2))
+    if (grepl("legendonly",name)) expect_equal(c(width,height),c(7,1)) else expect_equal(c(width,height),c(2,2))
     names <<- c(names,name)
   }
   run_dedup_pareto(d,means,tmp,writer)
