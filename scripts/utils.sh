@@ -2,7 +2,7 @@
 
 # Finds the best match for parameter w in MII to achieve given target chunk size.
 get_w_for_mii() {
-  MII_AVGS=(1 2 4 10 32 147 877 6248 51341 476910) # mapping from w to average chunk size for w=0..10
+  MII_AVGS=(1 2 4 10 32 147 877 6248 51341 476910) # rounded empirical predictions for w=0..9 bytes; not measurements
   target=$1
   closest=0
   distance=$(($target - ${MII_AVGS[0]}))
