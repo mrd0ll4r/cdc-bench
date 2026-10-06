@@ -24,87 +24,37 @@ They roughly correspond to the sections of the paper:
 
 ## Achieved-size and metadata-adjusted analysis
 
-Running `eval_dedup.R` also produces the Pareto analysis using its existing
-`dedup_ratio` values and the achieved means already computed by `eval_csd.R`.
-Small helper functions live in `dedup_pareto.R`. No benchmark rerun is required.
-Existing numerical summaries avoid rereading individual chunks. If no summary
-exists yet, the script aggregates the saved chunk-size results once and caches it.
+Running `eval_dedup.R` produces the achieved-size Pareto analysis at a fixed
+illustrative metadata cost of **28 B per emitted chunk**.
 
-Mean sources, in order of preference:
+Inputs are the existing `dedup_*.csv.gz` and `csd_*.csv.gz` files in `csv_dir`.
+The script uses its existing deduplication ratios and runs one DuckDB
+`AVG(chunk_size)` query over the CSD files, grouped by exact algorithm, dataset,
+and target. All emitted chunks count, including repeated and final partial
+chunks. Only the grouped means enter R. There is no summary cache, session-object
+lookup, alternate input path, or LaTeX input. No benchmarks are rerun.
 
-- An explicit path selected with `options(cdc.csd_mean_summary="/path/to/summary.csv")`.
-- The existing in-memory `duckdb_df` summary from the CSD evaluation.
-- `tab/csd_means.csv`, which `eval_csd.R` now saves from its existing aggregate
-  before display rounding or target-error transformations.
-- If no summary is available, `csd_*.csv.gz` in the same `csv_dir` used for dedup
-  results. DuckDB computes the grouped means directly from these files and saves
-  `tab/csd_means.csv` for subsequent runs. This processes saved measurements;
-  it does not execute any benchmark or rechunk the datasets.
+Use one consistent result collection without overlapping exports or repeated runs.
+The metadata-adjusted savings are `d - 28/c`, where d is fractional deduplication
+savings and c is achieved mean size. This equals `1 - (U + 28*N)/S`.
+Negative savings remain visible. Rings identify nondominated measured points
+within each dataset, maximizing both adjusted savings and mean size; ties remain.
 
-The CSV accepts the existing wide aggregate (`mean_512`, `mean_1024`, etc.) or
-long columns `algorithm,dataset,target_chunk_size,mean_chunk_size`. Compressed
-`.csv.gz` summaries are also accepted. LaTeX tables and figures are outputs only;
-they are never read as data. Use the unrounded numerical aggregate.
+DuckDB/DBI are required, as for `eval_csd.R`. Malformed chunks and duplicate
+summary keys fail. Missing/invalid configurations are recorded in
+`tab/dedup-pareto-coverage.csv` and stop figure generation. Configuration keys
+alone cannot establish matching input content or historical run settings.
 
-If the CSD aggregate is still available as `duckdb_df`, `eval_dedup.R` can use it
-directly. To persist it without recomputing anything:
+The existing `print_plot()` exporter writes separate TeX/PNG assets:
 
-```r
-dir.create("tab", showWarnings=FALSE, recursive=TRUE)
-readr::write_csv(duckdb_df, "tab/csd_means.csv")
-```
+- `fig/dedup_pareto_code`, `fig/dedup_pareto_web`, `fig/dedup_pareto_vmb`,
+  and `fig/dedup_pareto_db`: each 2 by 2 inches, without a legend.
+- `fig/dedup_pareto_legendonly`: shared legend, 6 by 1 inches.
 
-The loader reports which source it used and how many configurations it found.
-If neither a summary nor saved chunk-size files are available, the warning lists
-the paths searched and missing means remain explicit in the coverage report.
-An explicit summary path never falls back to another result collection.
-Existing formatted tables alone are insufficient for this workflow.
+The color/shape scales are shared with the configured-target deduplication
+figures. The CSV `tab/dedup-adjusted.csv` contains the 180 configurations at 28 B.
 
-Use one collection of CSD exports without overlapping copies or repeated runs.
-The fallback runs one DuckDB `AVG(chunk_size)` query grouped by algorithm,
-dataset, and target, including duplicates and final partial chunks. Only the
-small grouped summary is returned to R. It uses the `duckdb` and `DBI` R packages
-already used by `eval_csd.R`. Invalid chunks and CSV parse errors stop aggregation
-rather than being silently dropped.
-Remove the cached summary or select the appropriate CSV explicitly when switching
-to a different result collection.
-
-For fractional deduplication savings d = 1 - U/S and achieved mean c = S/N,
-metadata-adjusted savings is `d - m/c`, equivalent to `1 - (U + m*N)/S`.
-Here N counts all emitted chunks, including duplicates and final partial chunks;
-U is unique chunk bytes and S is input bytes. The analysis does not need these
-three totals separately. Metadata costs m=28,48,64 B/chunk are illustrative.
-The deduplication ratio must be fractional savings in [0,1], not an input/unique
-size multiplier. The ratios come from the same code as the configured-target
-figures, including its existing VMB dataset-size correction.
-
-Use summaries from the same result collection and population: exact algorithm
-variant, dataset, and configured target. Means must cover all emitted chunks,
-not unique chunks or an unweighted average of per-file means. Matching keys
-cannot establish identical run provenance; the summaries do not contain enough
-information to detect different inputs or parameter settings with the same keys.
-Duplicate keys fail instead of silently averaging results. Missing or invalid
-values are excluded and reported explicitly.
-
-Negative adjusted savings remain visible. Within each dataset and metadata cost,
-rings mark configurations for which no available point has both larger/equal
-mean and greater/equal savings, with at least one strict improvement. All exact
-ties remain. Comparisons use the supplied values without additional rounding.
-No points are interpolated.
-
-Outputs use the existing `print_plot()` exporter:
-
-- `fig/dedup-pareto-{28,48,64}.tex` and `.png`: CODE, WEB, VMB, DB panels.
-- `tab/dedup-adjusted.csv`: matched summaries, costs, savings, dominance flags.
-- `tab/dedup-pareto-coverage.csv`: status of all 180 publication configurations.
-
-Missing configurations produce a warning and explicit coverage status. Panels
-show available configurations out of 45, with empty panels labeled accordingly;
-frontiers refer only to available results. Review coverage and summary consistency
-before using figures in the paper. Generated TeX names match the manuscript's
-existing placeholders. Configured-target figures remain.
-
-Run synthetic analysis tests from the repository root:
+Run the analysis tests from the repository root (including DuckDB integration):
 
 ```sh
 Rscript --vanilla plotting/tests/test_dedup_pareto.R

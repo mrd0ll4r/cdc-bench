@@ -15,23 +15,6 @@ pareto_select <- function(x) {
 }
 
 
-# Accept the existing wide DuckDB summary (mean_512, mean_1024, ...) or a
-# long summary. No chunk counts, input-byte totals, or unique-byte totals needed.
-pareto_mean_summary <- function(summary) {
-  x <- as.data.frame(summary)
-  if (!all(c("algorithm", "dataset") %in% names(x))) stop("Missing mean-summary keys")
-  if (!all(c("target_chunk_size", "mean_chunk_size") %in% names(x))) {
-    columns <- intersect(paste0("mean_", PARETO_TARGETS), names(x))
-    if (!length(columns)) stop("Missing mean-size columns")
-    x <- do.call(rbind, lapply(columns, function(column) data.frame(
-      algorithm=x$algorithm, dataset=x$dataset,
-      target_chunk_size=as.numeric(sub("mean_", "", column)), mean_chunk_size=x[[column]])))
-  }
-  x <- pareto_select(x)[, c(PARETO_KEYS, "mean_chunk_size")]
-  x$mean_chunk_size <- suppressWarnings(as.numeric(as.character(x$mean_chunk_size)))
-  x
-}
-
 # Let DuckDB scan and aggregate the saved chunk files; only the small grouped
 # summary enters R. AVG includes repeated chunks and final partial chunks.
 aggregate_pareto_means <- function(files) {
@@ -61,49 +44,7 @@ aggregate_pareto_means <- function(files) {
     paste(PARETO_TARGETS,collapse=","))
   result <- DBI::dbGetQuery(con,query)
   if (any(result$invalid_chunks > 0)) stop("Invalid chunk sizes in CSD inputs")
-  pareto_mean_summary(result)
-}
-
-load_pareto_means <- function(summary=NULL, path=NULL, chunk_dir=NULL) {
-  explicit_path <- !is.null(path)
-  if (is.null(path) && !is.null(summary)) {
-    result <- pareto_mean_summary(summary)
-    attr(result,"source") <- "in-memory CSD summary"
-    message("Loaded ",nrow(result)," mean-size configurations from the in-memory CSD summary.")
-    return(result)
-  }
-  if (is.null(path)) {
-    path <- "tab/csd_means.csv"
-  }
-  if (length(path) != 1 || is.na(path) || !grepl("\\.csv(\\.gz)?$", path, ignore.case=TRUE))
-    stop("CSD mean input must be a numerical CSV summary (.csv or .csv.gz); LaTeX is output only.")
-  if (!file.exists(path)) {
-    # An explicit selection must never silently fall back to a different collection.
-    files <- if (!explicit_path && !is.null(chunk_dir))
-      sort(Sys.glob(file.path(chunk_dir,"csd_*.csv.gz"))) else character()
-    if (length(files)) {
-      message("No cached mean summary; calculating means from existing CSD result files.")
-      result <- aggregate_pareto_means(files)
-      if (!nrow(result)) stop("CSD files contain no supported algorithm/dataset/target configurations in ",chunk_dir)
-      dir.create(dirname(path),recursive=TRUE,showWarnings=FALSE)
-      readr::write_csv(result,path)
-      attr(result,"source") <- normalizePath(path)
-      message("Saved ",nrow(result)," mean-size configurations to ",attr(result,"source"))
-      return(result)
-    }
-    searched <- if (!explicit_path && !is.null(chunk_dir))
-      paste0("; no csd_*.csv.gz files in ",normalizePath(chunk_dir,mustWork=FALSE)) else ""
-    warning("No saved CSD mean summary found at ",normalizePath(path,mustWork=FALSE),searched,
-            ". Supply the numerical aggregate or the directory containing saved chunk-size results.",call.=FALSE)
-    return(data.frame(algorithm=character(),dataset=character(),target_chunk_size=numeric(),
-                      mean_chunk_size=numeric()))
-  }
-  x <- readr::read_csv(path, show_col_types=FALSE, name_repair="check_unique")
-  if (nrow(readr::problems(x))) stop("Malformed CSD mean summary")
-  result <- pareto_mean_summary(x)
-  attr(result,"source") <- normalizePath(path)
-  message("Loaded ",nrow(result)," mean-size configurations from ",attr(result,"source"))
-  result
+  result[,c(PARETO_KEYS,"mean_chunk_size")]
 }
 
 match_pareto_summaries <- function(dedup, means) {
@@ -134,61 +75,61 @@ pareto_nondominated <- function(mean, savings) {
     (mean > mean[i] | savings > savings[i])),logical(1))
 }
 
-calculate_dedup_pareto <- function(matched, costs=c(28,48,64)) {
-  if (!length(costs) || any(!is.finite(costs) | costs < 0)) stop("Invalid metadata costs")
-  rows <- matched[matched$status == "ok",setdiff(names(matched),"status"),drop=FALSE]
-  do.call(rbind,lapply(costs,function(cost) {
-    x <- rows
-    x$metadata_bytes <- rep(cost,nrow(x))
-    x$raw_savings <- x$dedup_ratio
-    x$adjusted_savings <- x$dedup_ratio-cost/x$mean_chunk_size
-    x$nondominated <- rep(FALSE,nrow(x))
-    for (dataset in PARETO_DATASETS) {
-      ix <- which(x$dataset == dataset)
-      x$nondominated[ix] <- pareto_nondominated(x$mean_chunk_size[ix],x$adjusted_savings[ix])
-    }
-    x
-  }))
+calculate_dedup_pareto <- function(matched) {
+  x <- matched[matched$status == "ok",setdiff(names(matched),"status"),drop=FALSE]
+  x$metadata_bytes <- rep(28,nrow(x))
+  x$raw_savings <- x$dedup_ratio
+  x$adjusted_savings <- x$dedup_ratio-28/x$mean_chunk_size
+  x$nondominated <- rep(FALSE,nrow(x))
+  for (dataset in PARETO_DATASETS) {
+    ix <- which(x$dataset == dataset)
+    x$nondominated[ix] <- pareto_nondominated(x$mean_chunk_size[ix],x$adjusted_savings[ix])
+  }
+  x
 }
 
-plot_dedup_pareto <- function(results, cost) {
-  x <- results[results$metadata_bytes == cost, , drop=FALSE]
-  x$dataset <- factor(x$dataset, levels=PARETO_DATASETS)
-  x$algorithm <- factor(x$algorithm, levels=names(PARETO_ALGORITHMS))
-  counts <- table(x$dataset)
-  panel_labels <- setNames(paste0(toupper(PARETO_DATASETS), " (", counts, "/45)"), PARETO_DATASETS)
-  empty_x <- if (nrow(x)) exp(mean(log(range(x$mean_chunk_size)))) else 1
-  empty <- data.frame(dataset=factor(PARETO_DATASETS[counts == 0], levels=PARETO_DATASETS),
-                      mean_chunk_size=rep(empty_x, sum(counts == 0)),
-                      adjusted_savings=rep(0, sum(counts == 0)))
-  ggplot2::ggplot(x, ggplot2::aes(mean_chunk_size, adjusted_savings*100)) +
-    ggplot2::geom_point(ggplot2::aes(colour=algorithm, shape=algorithm), size=2) +
-    ggplot2::geom_point(data=x[x$nondominated, , drop=FALSE], shape=1, size=4, colour="black") +
-    ggplot2::geom_text(data=empty, label="No matched results", size=3) +
-    ggplot2::facet_wrap(~dataset, ncol=2, drop=FALSE, labeller=ggplot2::as_labeller(panel_labels)) +
-    ggplot2::scale_x_log10() +
-    ggplot2::scale_colour_manual(values=c("#666666", "#d95f02", "#1b9e77", "#7570b3", "#e7298a",
-                                          "#000000", "#a6761d", "#e6ab02", "#66a61e"),
-                                 breaks=names(PARETO_ALGORITHMS), labels=PARETO_ALGORITHMS, drop=FALSE) +
-    ggplot2::scale_shape_manual(values=c(0, 2, 3, 4, 5, 6, 7, 8, 9),
-                                breaks=names(PARETO_ALGORITHMS), labels=PARETO_ALGORITHMS, drop=FALSE) +
-    ggplot2::labs(x="Achieved mean chunk size (B)", y="Metadata-adjusted savings (%)",
-      colour=NULL, shape=NULL,
-      subtitle=sprintf("Metadata: %d B/chunk; rings: nondominated available configurations", cost)) +
-    ggplot2::theme_bw(base_size=9) + ggplot2::theme(legend.position="bottom") +
-    ggplot2::guides(colour=ggplot2::guide_legend(nrow=2), shape=ggplot2::guide_legend(nrow=2))
+# Named scales shared with the configured-target deduplication plots. This is
+# their existing factor order after rename_algorithms(), made explicit.
+DEDUP_LABELS <- c("AE","Buzhash","FSC","Gear","MII","PCI","Rabin","RAM","SeqCDC")
+DEDUP_COLORS <- setNames(c("#1b9e77","#d95f02","#7570b3","#e7298a","#66a61e",
+                           "#e6ab02","#a6761d","#666666","#1f78b4"),DEDUP_LABELS)
+DEDUP_SHAPES <- setNames(c(21,22,23,24,25,1,2,3,4),DEDUP_LABELS)
+dedup_algorithm_scales <- function() list(
+  ggplot2::scale_color_manual(values=DEDUP_COLORS,limits=DEDUP_LABELS,drop=FALSE),
+  ggplot2::scale_shape_manual(values=DEDUP_SHAPES,limits=DEDUP_LABELS,drop=FALSE))
+
+plot_dedup_pareto <- function(results, dataset) {
+  x <- results[results$dataset == dataset,,drop=FALSE]
+  x$algorithm <- factor(unname(PARETO_ALGORITHMS[x$algorithm]),levels=DEDUP_LABELS)
+  ggplot2::ggplot(x,ggplot2::aes(mean_chunk_size,adjusted_savings*100)) +
+    ggplot2::geom_point(ggplot2::aes(colour=algorithm,shape=algorithm),size=1.5,fill="white") +
+    ggplot2::geom_point(data=x[x$nondominated,,drop=FALSE],shape=1,size=3,colour="black",show.legend=FALSE) +
+    ggplot2::scale_x_log10() + dedup_algorithm_scales() +
+    ggplot2::labs(x="Mean chunk size (B)",y="Adjusted savings (%)",colour=NULL,shape=NULL) +
+    ggplot2::theme(legend.position="none",axis.text.x=ggplot2::element_text(angle=45,hjust=1)) +
+    ggplot2::guides(colour=ggplot2::guide_legend(nrow=1),shape=ggplot2::guide_legend(nrow=1))
+}
+
+pareto_legend_plot <- function(p) {
+  grobs <- ggplot2::ggplotGrob(p + ggplot2::theme(legend.position="bottom"))
+  ix <- which(grepl("^guide-box",grobs$layout$name) &
+                vapply(grobs$grobs,function(g) inherits(g,"gtable"),logical(1)))
+  legend <- grobs$grobs[[ix[1]]]
+  ggplot2::ggplot() + ggplot2::annotation_custom(legend) + ggplot2::theme_void()
 }
 
 run_dedup_pareto <- function(dedup, means, output_dir="tab", plot_writer=print_plot) {
   matched <- match_pareto_summaries(dedup,means)
-  results <- calculate_dedup_pareto(matched)
   dir.create(output_dir,recursive=TRUE,showWarnings=FALSE)
   readr::write_csv(matched,file.path(output_dir,"dedup-pareto-coverage.csv"))
+  if (any(matched$status != "ok"))
+    stop("Incomplete Pareto inputs; see ",file.path(output_dir,"dedup-pareto-coverage.csv"))
+  results <- calculate_dedup_pareto(matched)
   readr::write_csv(results,file.path(output_dir,"dedup-adjusted.csv"))
-  if (any(matched$status != "ok")) warning(sprintf(
-    "Pareto analysis: %d/180 configurations unavailable; see dedup-pareto-coverage.csv. Frontiers cover available results only.",
-    sum(matched$status != "ok")),call.=FALSE)
-  for (cost in c(28,48,64))
-    plot_writer(plot_dedup_pareto(results,cost),paste0("dedup-pareto-",cost),width=7,height=5)
+  for (dataset in PARETO_DATASETS) {
+    p <- plot_dedup_pareto(results,dataset)
+    plot_writer(p,paste0("dedup_pareto_",dataset),width=2,height=2)
+  }
+  plot_writer(pareto_legend_plot(p),"dedup_pareto_legendonly",width=6,height=1)
   invisible(list(results=results,coverage=matched))
 }

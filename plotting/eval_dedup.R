@@ -55,14 +55,9 @@ d <- dedup_data %>%
   filter(algorithm %in% ALGORITHMS_TO_COMPARE) %>%
   filter(target_chunk_size %in% POWER_OF_TWO_SIZES)
 
-# Reuse the means already produced by the CSD evaluation and the ratios above.
-# An existing in-memory DuckDB summary avoids any additional input reads.
-# Otherwise load the cached means, or aggregate the existing CSD result files.
-pareto_means <- load_pareto_means(
-  summary=if (exists("duckdb_df")) duckdb_df else NULL,
-  path=getOption("cdc.csd_mean_summary", NULL),
-  chunk_dir=csv_dir)
-pareto_results <- run_dedup_pareto(d, pareto_means)
+# One source for achieved means: the saved CSD result files in csv_dir.
+pareto_means <- aggregate_pareto_means(sort(Sys.glob(file.path(csv_dir,"csd_*.csv.gz"))))
+pareto_results <- run_dedup_pareto(d,pareto_means)
 
 ######################################################################
 # Dedup overview per dataset
@@ -87,11 +82,7 @@ for (dataset_name in unique(d$dataset)) {
            shape = guide_legend(nrow = 1)) +  
     scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", 
                                      "longdash", "twodash", "13", "44", "1343")) +
-    scale_shape_manual(values = c(21, 22, 23, 24, 25, 1, 2, 3, 4)) +
-    scale_color_manual(values = c(
-      "#1b9e77", "#d95f02", "#7570b3", "#e7298a", 
-      "#66a61e", "#e6ab02", "#a6761d", "#666666", "#1f78b4"
-    )) +
+    dedup_algorithm_scales() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
   
   print_plot(p, paste("dedup_overview", dataset_name, sep="_"), height=2, width=2)

@@ -79,11 +79,6 @@ GROUP BY dataset, algorithm;
 ")
 ######################################################
 
-# Preserve the existing unrounded aggregate for other evaluations (including
-# eval_dedup.R); do this before display rounding or target-error transformations.
-dir.create("tab", showWarnings=FALSE, recursive=TRUE)
-write_csv(duckdb_df, "tab/csd_means.csv")
-
 df <- as.data.frame(duckdb_df)
 df <- df[df$algorithm %in% ALGORITHM_ORDER, ] 
 df$dataset <- factor(df$dataset, levels = DATASET_ORDER)
