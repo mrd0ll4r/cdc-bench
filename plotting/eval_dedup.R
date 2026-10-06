@@ -39,11 +39,6 @@ for (f in infiles) {
   rm(tmp)
 }
 
-# Use the original byte totals for matched-population validation, before the
-# legacy configured-target plot's VMB size override below.
-pareto_results <- run_dedup_pareto(
-  dedup_data, Sys.glob(file.path(csv_dir, "csd_*.csv.gz")), dedup_files=infiles)
-
 # temp fix for zero dataset_size on vmb because directory is symlink
 library(bit64)
 dedup_data <- dedup_data %>%
@@ -59,6 +54,14 @@ dedup_data <- dedup_data %>%
 d <- dedup_data %>%
   filter(algorithm %in% ALGORITHMS_TO_COMPARE) %>%
   filter(target_chunk_size %in% POWER_OF_TWO_SIZES)
+
+# Reuse the means already produced by the CSD evaluation and the ratios above.
+# An existing in-memory DuckDB summary avoids any additional input reads.
+# Otherwise use the saved numerical summary, or the generated mean-size table.
+pareto_means <- load_pareto_means(
+  summary=if (exists("duckdb_df")) duckdb_df else NULL,
+  path=getOption("cdc.csd_mean_summary", NULL))
+pareto_results <- run_dedup_pareto(d, pareto_means)
 
 ######################################################################
 # Dedup overview per dataset

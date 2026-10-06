@@ -24,44 +24,63 @@ They roughly correspond to the sections of the paper:
 
 ## Achieved-size and metadata-adjusted analysis
 
-Running `eval_dedup.R` also produces the Pareto analysis, using the same
-`csv/dedup_*.csv.gz` exports and the existing `csv/csd_*.csv.gz` chunk records.
-No Python command, normalized input CSV, Parquet conversion, or new benchmark
-run is needed for this analysis. Small helper functions live in `dedup_pareto.R`.
+Running `eval_dedup.R` also produces the Pareto analysis using its existing
+`dedup_ratio` values and the achieved means already computed by `eval_csd.R`.
+Small helper functions live in `dedup_pareto.R`. No benchmark rerun or rereading
+individual chunks is required.
 
-CSD files are streamed in bounded batches. For each exact algorithm variant,
-dataset, and configured target, all rows are counted as emitted chunks N and
-all chunk sizes are summed as S, including duplicates and final partial chunks.
-These totals join to unique bytes U in the dedup exports. The analysis requires
-S to equal the dedup export's dataset size. It does not use the legacy plot's
-hard-coded VMB size override. Zero/missing/mismatched sizes are reported, not
-silently repaired. Duplicate dedup configurations fail rather than averaging runs.
-Use one consistent result collection: no mix of repeated runs or overlapping CSD
-exports. The old CSVs do not record run IDs or input fingerprints, so matching
-keys and sizes cannot prove identical input content or historical parameters.
-Do not invent provenance fields or relabel ambiguous algorithm variants.
+Mean sources, in order of preference:
 
-Achieved mean is S/N. Adjusted savings is `1 - (U + m*N)/S`, for illustrative
-metadata costs m=28,48,64 B per emitted chunk. Negative savings remain visible.
-Within each dataset and cost, rings mark points for which no other available
-configuration has both larger/equal mean and greater/equal savings, with at least
-one strict improvement. All exact ties remain. Integer byte/count comparisons
-avoid rounding the ratios for dominance; values outside R's exact integer range
-are rejected. There are no interpolated points or connecting frontier lines.
+- An explicit path selected with `options(cdc.csd_mean_summary="/path/to/summary")`.
+- The existing in-memory `duckdb_df` summary from the CSD evaluation.
+- `tab/csd_means.csv`, which `eval_csd.R` now saves from its existing aggregate
+  before display rounding or target-error transformations.
+- The existing generated `tab/csd_means_sd_full.tex` table. This fallback reads
+  numeric mean cells, not plot coordinates. Its whole-byte rounding makes savings
+  and frontier membership approximate; warnings, plots, and `mean_rounded`
+  output flags identify this case. An explicit path can also select this table.
+
+The CSV accepts the existing wide aggregate (`mean_512`, `mean_1024`, etc.) or
+long columns `algorithm,dataset,target_chunk_size,mean_chunk_size`. No separate
+normalized CSV needs to be prepared when one of the existing artifacts is available.
+Unrounded numerical summaries are preferred for final figures. The existing
+paper table omits FSC; that configuration remains missing unless its means are
+available in a numerical summary.
+
+For fractional deduplication savings d = 1 - U/S and achieved mean c = S/N,
+metadata-adjusted savings is `d - m/c`, equivalent to `1 - (U + m*N)/S`.
+Here N counts all emitted chunks, including duplicates and final partial chunks;
+U is unique chunk bytes and S is input bytes. The analysis does not need these
+three totals separately. Metadata costs m=28,48,64 B/chunk are illustrative.
+The deduplication ratio must be fractional savings in [0,1], not an input/unique
+size multiplier. The ratios come from the same code as the configured-target
+figures, including its existing VMB dataset-size correction.
+
+Use summaries from the same result collection and population: exact algorithm
+variant, dataset, and configured target. Means must cover all emitted chunks,
+not unique chunks or an unweighted average of per-file means. Matching keys
+cannot establish identical run provenance; the summaries do not contain enough
+information to detect different inputs or parameter settings with the same keys.
+Duplicate keys fail instead of silently averaging results. Missing or invalid
+values are excluded and reported explicitly.
+
+Negative adjusted savings remain visible. Within each dataset and metadata cost,
+rings mark configurations for which no available point has both larger/equal
+mean and greater/equal savings, with at least one strict improvement. All exact
+ties remain. Comparisons use the supplied values without additional rounding;
+frontiers based on rounded table means are approximate. No points are interpolated.
 
 Outputs use the existing `print_plot()` exporter:
 
 - `fig/dedup-pareto-{28,48,64}.tex` and `.png`: CODE, WEB, VMB, DB panels.
-- `tab/dedup-adjusted.csv`: matched measurements, costs, savings, dominance flags.
+- `tab/dedup-adjusted.csv`: matched summaries, costs, savings, dominance flags.
 - `tab/dedup-pareto-coverage.csv`: status of all 180 publication configurations.
-- `tab/dedup-pareto-sources.csv`: input paths, file sizes, and modification times
-  (an input inventory, not recovered historical run provenance).
 
 Missing configurations produce a warning and explicit coverage status. Panels
 show available configurations out of 45, with empty panels labeled accordingly;
-frontiers refer only to the available measurements. Before using figures in the
-paper, review the coverage report and input consistency. The generated TeX names
-match the manuscript's existing placeholders. Configured-target figures remain.
+frontiers refer only to available results. Review coverage and summary consistency
+before using figures in the paper. Generated TeX names match the manuscript's
+existing placeholders. Configured-target figures remain.
 
 Run synthetic analysis tests from the repository root:
 
