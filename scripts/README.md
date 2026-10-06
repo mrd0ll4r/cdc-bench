@@ -1,6 +1,6 @@
 # Experiment Scripts
 
-These are the scripts used to run the experiments for the paper.
+These scripts specify the current artifact procedure. The exact versions and environment used for the published measurements require the historical run records listed in [REPRODUCIBILITY.md](../REPRODUCIBILITY.md).
 
 **The scripts are intended to be executed from the repo root, e.g., `./scripts/run-all-experiments.sh`.**
 
@@ -20,6 +20,7 @@ You can adjust any of these paths in the [`utils.sh`](utils.sh) script.
 ### Datasets
 
 First, collect the datasets using the following scripts:
+- `get-db.sh` generates 25 DB images using QEMU/KVM and guest customization; see the [construction details and limitations](../REPRODUCIBILITY.md#db-construction).
 - `get-vmb.sh` generates the VMB dataset. This requires QEMU and is intended to be run on a Debian host.
 - `get-code.sh` downloads the CODE dataset.
 - `get-lnx.sh` downloads the LNX dataset.
@@ -30,7 +31,7 @@ First, collect the datasets using the following scripts:
     Please refer to the documentation on arXiv.
 - `get-rand.sh` creates a random binary file for the RAND dataset and a `random_small.bin` for the hash value
     distribution experiment.
-- `get-web.sh` downloads the WEB dataset.
+- `get-web.sh` requests daily WEB captures for January 2024; see [retrieval details and limitations](../REPRODUCIBILITY.md#web-retrieval).
 
 ### Dataset Metadata
 
@@ -67,4 +68,4 @@ Make sure `$FAST_DATA_PATH` (as per [`utils.sh`](utils.sh)) is mounted as `tmpfs
 
 ## Experiments
 
-Once you have all datasets setup, simply execute `run-all-experiments.sh` from the repository root.
+Once datasets and the run environment are prepared, `run-all-experiments.sh` orchestrates the current experiments from the repository root. The current `speed.sh` measures RAND only, irrespective of `DATASETS`; it defaults to ten repetitions and one warm-up per algorithm at the first target. It does not mount `fast_data` or enforce affinity, frequency, or NUMA policy. Record those settings using [the checklist](../REPRODUCIBILITY.md#author-input-checklist) before running experiments.
