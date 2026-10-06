@@ -105,7 +105,7 @@ plot_dedup_pareto <- function(results, dataset) {
     ggplot2::geom_point(ggplot2::aes(colour=algorithm,shape=algorithm),size=1.5,fill="white") +
     ggplot2::geom_point(data=x[x$nondominated,,drop=FALSE],shape=1,size=3,colour="black",show.legend=FALSE) +
     ggplot2::scale_x_log10() + dedup_algorithm_scales() +
-    ggplot2::labs(x="Mean chunk size (B)",y="Adjusted savings (%)",colour=NULL,shape=NULL) +
+    ggplot2::labs(x="Mean chunk size (B)",y="Dedup. Ratio",colour=NULL,shape=NULL) +
     ggplot2::theme(legend.position="none",axis.text.x=ggplot2::element_text(angle=45,hjust=1)) +
     ggplot2::guides(colour=ggplot2::guide_legend(nrow=1),shape=ggplot2::guide_legend(nrow=1))
 }
