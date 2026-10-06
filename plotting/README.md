@@ -26,8 +26,9 @@ They roughly correspond to the sections of the paper:
 
 Running `eval_dedup.R` also produces the Pareto analysis using its existing
 `dedup_ratio` values and the achieved means already computed by `eval_csd.R`.
-Small helper functions live in `dedup_pareto.R`. No benchmark rerun or rereading
-individual chunks is required.
+Small helper functions live in `dedup_pareto.R`. No benchmark rerun is required.
+Existing numerical summaries avoid rereading individual chunks. If no summary
+exists yet, the script aggregates the saved chunk-size results once and caches it.
 
 Mean sources, in order of preference:
 
@@ -35,6 +36,10 @@ Mean sources, in order of preference:
 - The existing in-memory `duckdb_df` summary from the CSD evaluation.
 - `tab/csd_means.csv`, which `eval_csd.R` now saves from its existing aggregate
   before display rounding or target-error transformations.
+- If no summary is available, `csd_*.csv.gz` in the same `csv_dir` used for dedup
+  results. Means are calculated in bounded batches and saved to
+  `tab/csd_means.csv` for subsequent runs. This processes saved measurements;
+  it does not execute any benchmark or rechunk the datasets.
 
 The CSV accepts the existing wide aggregate (`mean_512`, `mean_1024`, etc.) or
 long columns `algorithm,dataset,target_chunk_size,mean_chunk_size`. Compressed
@@ -49,9 +54,17 @@ dir.create("tab", showWarnings=FALSE, recursive=TRUE)
 readr::write_csv(duckdb_df, "tab/csd_means.csv")
 ```
 
-If neither the in-memory aggregate nor a saved numerical summary is available,
-missing means are reported in the coverage output. Existing formatted tables
-alone are insufficient for this workflow.
+The loader reports which source it used and how many configurations it found.
+If neither a summary nor saved chunk-size files are available, the warning lists
+the paths searched and missing means remain explicit in the coverage report.
+An explicit summary path never falls back to another result collection.
+Existing formatted tables alone are insufficient for this workflow.
+
+Use one collection of CSD exports without overlapping copies or repeated runs.
+The fallback combines chunk-size sums and chunk counts across batches, including
+duplicates and final partial chunks; it does not average per-batch means.
+Remove the cached summary or select the appropriate CSV explicitly when switching
+to a different result collection.
 
 For fractional deduplication savings d = 1 - U/S and achieved mean c = S/N,
 metadata-adjusted savings is `d - m/c`, equivalent to `1 - (U + m*N)/S`.

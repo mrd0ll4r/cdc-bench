@@ -32,10 +32,42 @@ pareto_mean_summary <- function(summary) {
   x
 }
 
-load_pareto_means <- function(summary=NULL, path=NULL) {
+# Aggregate existing emitted-chunk results in bounded batches. Combine sums and
+# counts, not batch means, so repeated chunks and short final batches all count.
+aggregate_pareto_means <- function(files, chunk_size=1000000) {
+  totals <- data.frame(algorithm=character(),dataset=character(),target_chunk_size=numeric(),
+                       chunk_bytes=numeric(),chunk_count=numeric())
+  if (anyDuplicated(normalizePath(files))) stop("Repeated CSD input paths")
+  for (file in files) {
+    message("Reading saved chunk sizes: ", normalizePath(file))
+    callback <- readr::SideEffectChunkCallback$new(function(x,pos) {
+      if (!all(c(PARETO_KEYS,"chunk_size") %in% names(x))) stop("Missing CSD chunk columns in ",file)
+      if (nrow(readr::problems(x))) stop("Malformed CSD chunk records in ",file)
+      x <- pareto_select(x)
+      if (!nrow(x)) return(invisible(NULL))
+      if (any(!is.finite(x$chunk_size) | x$chunk_size < 1 | x$chunk_size != floor(x$chunk_size)))
+        stop("Invalid chunk sizes in ",file)
+      grouped <- dplyr::group_by(x,dplyr::across(dplyr::all_of(PARETO_KEYS)))
+      batch <- dplyr::summarise(grouped,chunk_bytes=sum(chunk_size),chunk_count=dplyr::n(),.groups="drop")
+      combined <- dplyr::group_by(rbind(totals,as.data.frame(batch)),
+                                 dplyr::across(dplyr::all_of(PARETO_KEYS)))
+      totals <<- as.data.frame(dplyr::summarise(combined,chunk_bytes=sum(chunk_bytes),
+                                               chunk_count=sum(chunk_count),.groups="drop"))
+    })
+    readr::read_csv_chunked(file,callback,chunk_size=chunk_size,progress=FALSE,
+      col_types=readr::cols(algorithm=readr::col_character(),dataset=readr::col_character(),
+                          target_chunk_size=readr::col_double(),chunk_size=readr::col_double()))
+  }
+  totals$mean_chunk_size <- totals$chunk_bytes/totals$chunk_count
+  pareto_mean_summary(totals)
+}
+
+load_pareto_means <- function(summary=NULL, path=NULL, chunk_dir=NULL) {
+  explicit_path <- !is.null(path)
   if (is.null(path) && !is.null(summary)) {
     result <- pareto_mean_summary(summary)
     attr(result,"source") <- "in-memory CSD summary"
+    message("Loaded ",nrow(result)," mean-size configurations from the in-memory CSD summary.")
     return(result)
   }
   if (is.null(path)) {
@@ -44,7 +76,23 @@ load_pareto_means <- function(summary=NULL, path=NULL) {
   if (length(path) != 1 || is.na(path) || !grepl("\\.csv(\\.gz)?$", path, ignore.case=TRUE))
     stop("CSD mean input must be a numerical CSV summary (.csv or .csv.gz); LaTeX is output only.")
   if (!file.exists(path)) {
-    warning("No saved CSD mean summary found. Supply the existing numerical CSD aggregate in memory or as tab/csd_means.csv; Pareto coverage will show missing means.", call.=FALSE)
+    # An explicit selection must never silently fall back to a different collection.
+    files <- if (!explicit_path && !is.null(chunk_dir))
+      sort(Sys.glob(file.path(chunk_dir,"csd_*.csv.gz"))) else character()
+    if (length(files)) {
+      message("No cached mean summary; calculating means from existing CSD result files.")
+      result <- aggregate_pareto_means(files)
+      if (!nrow(result)) stop("CSD files contain no supported algorithm/dataset/target configurations in ",chunk_dir)
+      dir.create(dirname(path),recursive=TRUE,showWarnings=FALSE)
+      readr::write_csv(result,path)
+      attr(result,"source") <- normalizePath(path)
+      message("Saved ",nrow(result)," mean-size configurations to ",attr(result,"source"))
+      return(result)
+    }
+    searched <- if (!explicit_path && !is.null(chunk_dir))
+      paste0("; no csd_*.csv.gz files in ",normalizePath(chunk_dir,mustWork=FALSE)) else ""
+    warning("No saved CSD mean summary found at ",normalizePath(path,mustWork=FALSE),searched,
+            ". Supply the numerical aggregate or the directory containing saved chunk-size results.",call.=FALSE)
     return(data.frame(algorithm=character(),dataset=character(),target_chunk_size=numeric(),
                       mean_chunk_size=numeric()))
   }
@@ -52,6 +100,7 @@ load_pareto_means <- function(summary=NULL, path=NULL) {
   if (nrow(readr::problems(x))) stop("Malformed CSD mean summary")
   result <- pareto_mean_summary(x)
   attr(result,"source") <- normalizePath(path)
+  message("Loaded ",nrow(result)," mean-size configurations from ",attr(result,"source"))
   result
 }
 
