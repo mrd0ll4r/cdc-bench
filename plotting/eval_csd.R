@@ -51,59 +51,65 @@ process_data <- function(csd_data) {
   as.data.frame(df[, c("algorithm", "dataset", col_order)])
 }
 
-df <- rbind(
-  open_dataset(sprintf("%s/parquet/csd", csv_dir), hive_style=TRUE, format="parquet") %>% 
-    filter(dataset %in% c("random", "zero")) %>% 
-    process_data(),
-  open_dataset(sprintf("%s/parquet/csd_cat", csv_dir), hive_style=TRUE, format="parquet") %>% 
-    process_data()
-)
+######################################################
+library(duckdb)
+con <- dbConnect(duckdb::duckdb())
+duckdb_df <- dbGetQuery(con, "
+SELECT 
+    dataset, 
+    algorithm, 
+    -- Mean and SD for all target_chunk_size values
+    AVG(CASE WHEN target_chunk_size = 512 THEN chunk_size END) AS mean_512,
+    STDDEV(CASE WHEN target_chunk_size = 512 THEN chunk_size END) AS sd_512,
 
+    AVG(CASE WHEN target_chunk_size = 1024 THEN chunk_size END) AS mean_1024,
+    STDDEV(CASE WHEN target_chunk_size = 1024 THEN chunk_size END) AS sd_1024,
+
+    AVG(CASE WHEN target_chunk_size = 2048 THEN chunk_size END) AS mean_2048,
+    STDDEV(CASE WHEN target_chunk_size = 2048 THEN chunk_size END) AS sd_2048,
+
+    AVG(CASE WHEN target_chunk_size = 4096 THEN chunk_size END) AS mean_4096,
+    STDDEV(CASE WHEN target_chunk_size = 4096 THEN chunk_size END) AS sd_4096,
+
+    AVG(CASE WHEN target_chunk_size = 8192 THEN chunk_size END) AS mean_8192,
+    STDDEV(CASE WHEN target_chunk_size = 8192 THEN chunk_size END) AS sd_8192
+
+FROM read_csv_auto('csv/csd_*.csv.gz', ignore_errors=True)
+GROUP BY dataset, algorithm;
+")
+######################################################
+
+df <- as.data.frame(duckdb_df)
+df <- df[df$algorithm %in% ALGORITHM_ORDER, ] 
 df$dataset <- factor(df$dataset, levels = DATASET_ORDER)
 df$algorithm <- factor(df$algorithm, levels = ALGORITHM_ORDER)
+df <- df %>%
+  mutate(dataset = factor(dataset, levels = DATASET_ORDER),
+         algorithm = factor(algorithm, levels = ALGORITHM_ORDER)) %>%
+  arrange(dataset, algorithm)
+
 df <- df[order(df$dataset, df$algorithm), ]
-df <- df %>% 
-  mutate(
-    mean_512 = ifelse(algorithm == "mii", NA, mean_512),
-    sd_512 = ifelse(algorithm == "mii", NA, sd_512),
-    mean_770 = ifelse(algorithm %in% c("rabin_32", "buzhash_64", "gear"), NA, mean_770),
-    sd_770 = ifelse(algorithm %in% c("rabin_32", "buzhash_64", "gear"), NA, sd_770),
-    mean_1024 = ifelse(algorithm == "mii", NA, mean_1024),
-    sd_1024 = ifelse(algorithm == "mii", NA, sd_1024),
-    mean_2048 = ifelse(algorithm == "mii", NA, mean_2048),
-    sd_2048 = ifelse(algorithm == "mii", NA, sd_2048),
-    mean_4096 = ifelse(algorithm == "mii", NA, mean_4096),
-    sd_4096 = ifelse(algorithm == "mii", NA, sd_4096),
-    mean_5482 = ifelse(algorithm %in% c("rabin_32", "buzhash_64", "gear"), NA, mean_5482),
-    sd_5482 = ifelse(algorithm %in% c("rabin_32", "buzhash_64", "gear"), NA, sd_5482),
-    mean_8192 = ifelse(algorithm == "mii", NA, mean_8192),
-    sd_8192 = ifelse(algorithm == "mii", NA, sd_8192),
-  )
 
 color_scale_df <- df %>%
   mutate(
     sd_512 = ifelse(((df$sd_512 - df$mean_512) / df$mean_512 + 1) / 2 > 1, 1, ((df$sd_512 - df$mean_512) / df$mean_512 + 1) / 2),
-    sd_770 = ifelse(((df$sd_770 - df$mean_770) / df$mean_770 + 1) / 2 > 1, 1, ((df$sd_770 - df$mean_770) / df$mean_770 + 1) / 2),
     sd_1024 = ifelse(((df$sd_1024 - df$mean_1024) / df$mean_1024 + 1) / 2 > 1, 1, ((df$sd_1024 - df$mean_1024) / df$mean_1024 + 1) / 2),
     sd_2048 = ifelse(((df$sd_2048 - df$mean_2048) / df$mean_2048 + 1) / 2 > 1, 1, ((df$sd_2048 - df$mean_2048) / df$mean_2048 + 1) / 2),
     sd_4096 = ifelse(((df$sd_4096 - df$mean_4096) / df$mean_4096 + 1) / 2 > 1, 1, ((df$sd_4096 - df$mean_4096) / df$mean_4096 + 1) / 2),
-    sd_5482 = ifelse(((df$sd_5482 - df$mean_5482) / df$mean_5482 + 1) / 2 > 1, 1, ((df$sd_5482 - df$mean_5482) / df$mean_5482 + 1) / 2),
     sd_8192 = ifelse(((df$sd_8192 - df$mean_8192) / df$mean_8192 + 1) / 2 > 1, 1, ((df$sd_8192 - df$mean_8192) / df$mean_8192 + 1) / 2),
     
     mean_512 = ifelse(abs(df$mean_512 - 512) > 512, 512, abs(df$mean_512 - 512)),
-    mean_770 = ifelse(abs(df$mean_770 - 770) > 770, 770, abs(df$mean_770 - 770)),
     mean_1024 = ifelse(abs(df$mean_1024 - 1024) > 1024, 1024, abs(df$mean_1024 - 1024)),
     mean_2048 = ifelse(abs(df$mean_2048 - 2048) > 2048, 2048, abs(df$mean_2048 - 2048)),
     mean_4096 = ifelse(abs(df$mean_4096 - 4096) > 4096, 4096, abs(df$mean_4096 - 4096)),
-    mean_5482 = ifelse(abs(df$mean_5482 - 5482) > 5482, 5482, abs(df$mean_5482 - 5482)),
     mean_8192 = ifelse(abs(df$mean_8192 - 8192) > 8192, 8192, abs(df$mean_8192 - 8192)),
   )
 
-cgroup=c("Algorithm", "Dataset", "512 B", "770 B", "1 KB", "2 KB", "4 KB", "5482 B", "8 KB")
-n.cgroup=c(1, 1, 2, 2, 2, 2, 2, 2, 2)
+cgroup=c("Algorithm", "Dataset", "512 B", "1 KB", "2 KB", "4 KB", "8 KB")
+n.cgroup=c(1, 1, 2, 2, 2, 2, 2)
 
-rgroup=c("RANDOM", "LNX", "PDF", "WEB", "CODE")
-n.rgroup=c(14, 14, 14, 14, 14, 4)
+rgroup=c("RANDOM", "CODE", "WEB", "DB", "VMB")
+n.rgroup=c(8, 8, 8, 8, 8)
 
 ztab <- color_scale_df %>% 
   rename_algorithms() %>% 
@@ -112,7 +118,7 @@ ztab <- color_scale_df %>%
   addrgroup(rgroup=rgroup,n.rgroup=n.rgroup,cspan.rgroup=1) %>% 
   makeHeatmap(margin=2)
 
-for (col_name in c("mean_512", "sd_512", "mean_770", "sd_770", "mean_1024", "sd_1024", "mean_2048", "sd_2048", "mean_4096", "sd_4096", "mean_5482", "sd_5482", "mean_8192", "sd_8192")) {
+for (col_name in c("mean_512", "sd_512", "mean_1024", "sd_1024", "mean_2048", "sd_2048", "mean_4096", "sd_4096", "mean_8192", "sd_8192")) {
   ztab$x[[col_name]] <- as.character(as.integer(df[[col_name]]))
 }
 
@@ -130,9 +136,7 @@ get_cell_color <- function(att, algo, ds) {
     # If the algorithm name starts with "gear", select columns starting with 'att'
     # but not ending in '770' or '5482'
     means_df <- means_df %>%
-      select(matches(paste0("^", att)), 
-             -matches(paste0(att, "770$")), 
-             -matches(paste0(att, "5482$")))
+      select(matches(paste0("^", att)))
   } else {
     # Otherwise, just select columns that start with 'att'
     means_df <- means_df %>%
@@ -150,42 +154,42 @@ get_cell_color <- function(att, algo, ds) {
 }
 
 
-algorithms <- list('rabin_32', 'buzhash_64', 'gear', 'gear_nc_1', 'gear_nc_2', 'gear_nc_3', "ae", "ram", "pci", "mii", "bfbc", "bfbc_custom_div")
+algorithms <- list('rabin_32', 'buzhash_32', 'gear', "ae", "ram", "pci", "mii", "seq-cdc")
 
 mean_random <- numeric(length(algorithms))
-mean_lnx <- numeric(length(algorithms))
-mean_pdf <- numeric(length(algorithms))
-mean_web <- numeric(length(algorithms))
 mean_code <- numeric(length(algorithms))
+mean_web <- numeric(length(algorithms))
+mean_vmb <- numeric(length(algorithms))
+mean_db <- numeric(length(algorithms))
 sd_random <- numeric(length(algorithms))
-sd_lnx <- numeric(length(algorithms))
-sd_pdf <- numeric(length(algorithms))
-sd_web <- numeric(length(algorithms))
 sd_code <- numeric(length(algorithms))
+sd_web <- numeric(length(algorithms))
+sd_vmb <- numeric(length(algorithms))
+sd_db <- numeric(length(algorithms))
 
 for (i in seq_along(algorithms)) {
   algo <- algorithms[[i]]
   
   mean_random[i] <- get_cell_color("mean", algo, "random")
-  mean_lnx[i] <- get_cell_color("mean", algo, "lnx")
-  mean_pdf[i] <- get_cell_color("mean", algo, "pdf")
-  mean_web[i] <- get_cell_color("mean", algo, "web")
   mean_code[i] <- get_cell_color("mean", algo, "code")
+  mean_web[i] <- get_cell_color("mean", algo, "web")
+  mean_vmb[i] <- get_cell_color("mean", algo, "vmb")
+  mean_db[i] <- get_cell_color("mean", algo, "db")
   sd_random[i] <- get_cell_color("sd", algo, "random")
-  sd_lnx[i] <- get_cell_color("sd", algo, "lnx")
-  sd_pdf[i] <- get_cell_color("sd", algo, "pdf")
-  sd_web[i] <- get_cell_color("sd", algo, "web")
   sd_code[i] <- get_cell_color("sd", algo, "code")
+  sd_web[i] <- get_cell_color("sd", algo, "web")
+  sd_vmb[i] <- get_cell_color("sd", algo, "vmb")
+  sd_db[i] <- get_cell_color("sd", algo, "db")
 }
 
 # Create the dataframe without the algorithms column
-df <- data.frame(mean_random, mean_lnx, mean_pdf, mean_web, mean_code,
-                 sd_random, sd_lnx, sd_pdf, sd_web, sd_code, stringsAsFactors = FALSE)
+df <- data.frame(mean_random, mean_code, mean_web, mean_vmb, mean_db,
+                 sd_random, sd_code, sd_web, sd_vmb, sd_db, stringsAsFactors = FALSE)
 
 # Add the algorithms as a list column explicitly
 df$algorithm <- algorithms %>% sapply(function(x) paste(x, collapse = ", "))
-df <- df[, c("algorithm", "mean_random", "mean_lnx", "mean_pdf", "mean_web", "mean_code",
-             "sd_random", "sd_lnx", "sd_pdf", "sd_web", "sd_code")]
+df <- df[, c("algorithm", "mean_random", "mean_code", "mean_web", "mean_vmb", "mean_db",
+             "sd_random", "sd_code", "sd_web", "sd_vmb", "sd_db")]
 
 cgroup=c("Algorithms", "Mean", "SD")
 n.cgroup=c(1, 5, 5)
@@ -204,24 +208,70 @@ gc()
 
 # TODO algorithm_as_factor cleanup
 
+csd_ecdf_plot <- function(df) {
+  target_chunk_size <- as.numeric(df$target_chunk_size[1])
+  
+  # Calculate ECDF for each algorithm manually
+  df_ecdf <- df %>%
+    group_by(algorithm) %>%
+    arrange(chunk_size) %>%
+    mutate(ecdf_value = ecdf(chunk_size)(chunk_size)) %>%
+    ungroup()
+  
+  ggplot(df_ecdf, aes(x = chunk_size, y = ecdf_value, 
+                      color = algorithm, linetype = algorithm)) +
+    geom_step() +
+    xlab("Chunk Size (B)") +
+    ylab("Empirical CDF") +
+    coord_cartesian(xlim = c(0, target_chunk_size * 4), 
+                    ylim = c(0, 1)) +
+    theme_bw() + 
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "none"
+    )
+}
+
+
+con <- dbConnect(duckdb::duckdb())
+
+for (dataset_name in DATASET_ORDER) {
+  query <- sprintf(
+    "SELECT dataset, algorithm, target_chunk_size, chunk_size 
+     FROM read_csv_auto('csv/csd_%s.csv.gz', ignore_errors=True)
+     WHERE algorithm != 'fsc' AND target_chunk_size = 1024
+     ORDER BY RANDOM() LIMIT 10000;",
+    dataset_name
+  )
+  chunk_sizes_df <- dbGetQuery(con, query) %>% rename_algorithms()
+  p <- chunk_sizes_df %>% csd_ecdf_plot()
+  ggsave(paste0(paste("csd", dataset_name, sep="_"), ".pdf"), plot = p, width = 2, height = 2)
+  print_plot(p, paste("csd", dataset_name, sep="_"), height=2, width=2)
+}
+
+p %>% 
+  get_legend_plot(8) %>% 
+  print_plot("csd_legendonly", height=1, width=6)
+
+
+
 csd_density_plot <- function(df) {
-  df = filter(df, !(algorithm %in% c("fsc"))) %>%
-    collect()
-  target_chunk_size = as.numeric(df$target_chunk_size[1])
+  df <- filter(df, !(algorithm %in% c("fsc")))
+  target_chunk_size <- as.numeric(df$target_chunk_size[1])
   
   df_means <- df %>%
     group_by(algorithm) %>%
     summarize(mean_chunk_size = mean(chunk_size)) %>%
     collect()
   
-  return(
-    ggplot(df, aes(x = chunk_size, color = algorithm, linetype = algorithm)) +
-      geom_freqpoly(bins=100, aes(y = after_stat(density))) +
-      xlab("Chunk Size (B)") +
-      ylab("Density") +
-      xlim(c(0, target_chunk_size * 4)) +
-      geom_point(data = df_means, aes(x = mean_chunk_size, y = 0, color = algorithm), size = 3, show.legend = FALSE)
-  )
+  ggplot(df, aes(x = chunk_size, color = algorithm, linetype = algorithm)) +
+    geom_freqpoly(bins = 100, aes(y = after_stat(density))) +
+    xlab("Chunk Size (B)") +
+    ylab("Density") +
+    xlim(c(0, target_chunk_size * 4)) +
+    geom_point(data = df_means, 
+               aes(x = mean_chunk_size, y = 1e-6, color = algorithm),  # set a nonzero y-value
+               size = 3, show.legend = FALSE)
 }
 
 #### QuickCDC variants only

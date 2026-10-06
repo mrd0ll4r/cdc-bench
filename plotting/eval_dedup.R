@@ -24,38 +24,37 @@ source("util.R")
 ######################################################################
 
 dedup_data <- tibble()
-infiles <- Sys.glob(sprintf("%s/dedup_*_cat*",csv_dir))
+infiles <- Sys.glob(sprintf("%s/dedup_*.csv.gz", csv_dir))
 for (f in infiles) {
-  tmp <- read_csv(f,col_types = "fcIiI")
-
+  tmp <- read_csv(f, col_types = "fcIiI") %>%
+    mutate(algorithm = as.character(algorithm))
+  
   if (isempty(dedup_data)) {
     dedup_data <- tmp
   } else {
-    dedup_data <- rows_append(dedup_data,tmp)
+    dedup_data <- dedup_data %>%
+      mutate(algorithm = as.character(algorithm))
+    dedup_data <- rows_append(dedup_data, tmp)
   }
   rm(tmp)
 }
 
+# temp fix for zero dataset_size on vmb because directory is symlink
+library(bit64)
 dedup_data <- dedup_data %>%
-  filter(dataset %in% c("code","web","pdf","lnx")) %>%
+  mutate(dataset_size = if_else(dataset == "vmb", as.integer64(305448681472), dataset_size))
+
+dedup_data <- dedup_data %>%
+  filter(dataset %in% c("code","web","vmb","db")) %>%
   algorithm_as_factor() %>%
   mutate(unique_ratio=unique_chunks_size_sum/dataset_size) %>%
   mutate(dedup_ratio=1-unique_ratio) %>%
   mutate(target_chunk_size = as.factor(target_chunk_size))
 
-d <- dedup_data %>%
-  filter(algorithm %in% ALGORITHMS_TO_COMPARE) %>% 
-  filter(!(
-    algorithm %in% c("rabin_32", "buzhash_64", "gear") & target_chunk_size %in% c(770, 5482)
-  )) %>% 
-  filter(!(
-    algorithm == "mii" & target_chunk_size %in% POWER_OF_TWO_SIZES
-  ))
-
 ######################################################################
 # Dedup and metadata file size comparison with gzip compression
 
-dataset_sizes <- c(code=10228756480, web=9749016576, pdf=10668208128, lnx=11320045568)
+dataset_sizes <- c(code=117234841088, vmb=305448681472, db=155909947392, web=49004421120)
 
 chunk_counts <- open_dataset(sprintf("%s/parquet/csd_cat", csv_dir), hive_style=TRUE, format="parquet") %>% 
   filter(algorithm == 'rabin_32') %>%
@@ -138,41 +137,41 @@ print_plot(get_legend_plot(p, 2), "post_file_size_legendonly", height=0.8, width
 ######################################################################
 # Dedup overview per dataset
 
-# Proof that BSW algorithms perform the same (+- less than 0.01)
-d %>% 
-  filter(algorithm %in% c("rabin_32", "gear", "buzhash_64") & target_chunk_size %in% POWER_OF_TWO_SIZES) %>% 
-  rename_datasets() %>% rename_algorithms() %>% 
-  select(algorithm, dataset, target_chunk_size, dedup_ratio) %>% 
-  pivot_wider(names_from = algorithm, values_from = dedup_ratio) %>% 
-  View()
-
-for (dataset_name in unique(d$dataset)) {
-  filtered_data <- d %>%
-    filter(dataset == dataset_name & !(algorithm %in% c("buzhash_64", "gear")) ) %>% # rabin = buzhash = gear
+for (dataset_name in unique(dedup_data$dataset)) {
+  filtered_data <- dedup_data %>%
+    filter(dataset == dataset_name) %>%
     rename_datasets() %>% 
-    rename_algorithms() %>% 
-    mutate(algorithm = recode(algorithm, "Rabin" = "BSW"))
+    rename_algorithms()
   
   p <- filtered_data %>% 
-    ggplot(aes(x=target_chunk_size, y=dedup_ratio, color=algorithm, group=algorithm)) +
-    geom_line(position=position_dodge(0.1)) +
-    geom_point(position=position_dodge(0.1), size=1, shape=21, fill="white") +
+    ggplot(aes(x = target_chunk_size, y = dedup_ratio, 
+               color = algorithm, linetype = algorithm, shape = algorithm, group = algorithm)) +
+    geom_line(position = position_dodge(0.2), linewidth = 0.8) +  # Slightly increased dodge
+    geom_point(position = position_jitterdodge(jitter.width = 0.3, dodge.width = 0.2), 
+               size = 1.5, fill = "white") +  # Increased jitter
     ylab("Dedup. Ratio") +
     xlab("Target Chunk Size") +
-    theme(legend.position="none") +
-    guides(color = guide_legend(nrow = 4)) +
-    scale_color_futurama() +
+    theme(legend.position = "none") + 
+    guides(color = guide_legend(nrow = 1), 
+           linetype = guide_legend(nrow = 1), 
+           shape = guide_legend(nrow = 1)) +  
+    scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", 
+                                     "longdash", "twodash", "13", "44", "1343")) +
+    scale_shape_manual(values = c(21, 22, 23, 24, 25, 1, 2, 3, 4)) +
+    scale_color_manual(values = c(
+      "#1b9e77", "#d95f02", "#7570b3", "#e7298a", 
+      "#66a61e", "#e6ab02", "#a6761d", "#666666", "#1f78b4"
+    )) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
-    #ylim(0, 0.9)
   
-  print_plot(p, paste("dedup_overview", dataset_name, sep="_"), height=1.8, width=2)
+  print_plot(p, paste("dedup_overview", dataset_name, sep="_"), height=2, width=2)
 }
 
 p %>% 
-  get_legend_plot(8) %>% 
+  get_legend_plot(9) %>% 
   print_plot("dedup_overview_legendonly", height=1, width=6)
 
-rm(p,d)
+rm(p)
 gc()
 
 #########################################
@@ -200,8 +199,8 @@ for (dataset_name in unique(d$dataset)) {
     scale_y_continuous(labels = function(x) sprintf("%.2f", x)) +  # Formatting to two decimal places
     ylab("Dedup. Ratio") +
     xlab("Target Chunk Size") +
-    theme(legend.position="none",
-          axis.text.x = element_text(angle = 45, hjust = 1)) +
+   # theme(legend.position="none",
+  #        axis.text.x = element_text(angle = 45, hjust = 1)) +
     guides(color = guide_legend(nrow = 4)) +
     scale_color_futurama()
   

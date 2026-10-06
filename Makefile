@@ -24,7 +24,7 @@ dedup:
 # Get average of produced chunk sizes (last chunk is omitted).
 # Usage: cdc-algorithm-tester ... | make avg
 avg:
-	tail -n +2 | head -n -1 | awk -F, '{ sum += $$2 } END { print sum/NR }'
+	tail -n +2 | head -n -1 | awk -F, '{ sum += $$4 } END { if (NR > 0) print sum/NR }'
 
 # Prints a CSV with the entropy of each dataset.
 ent:

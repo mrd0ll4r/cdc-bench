@@ -42,9 +42,9 @@ BUZHASH_ALGORITHMS <- c("buzhash_16","buzhash_32","buzhash_48","buzhash_64","buz
 ADLER32_ALGORITHMS <- c("adler32_16","adler32_32","adler32_48","adler32_64","adler32_128","adler32_256")
 BFBC_ALGORITHMS <- c("bfbc","bfbc_custom_div")
 
-ALGORITHMS_TO_COMPARE <- c("fsc","ae","ram","mii","pci","rabin_32","buzhash_64","gear","seq-cdc")
-DATASET_ORDER <- c("random", "lnx", "pdf", "web", "code", "db", "vmb")
-ALGORITHM_ORDER <- c("rabin_32", "buzhash_64", "gear", "gear_nc_1", "gear_nc_2", "gear_nc_3", "ae", "ram", "pci", "mii", "bfbc", "bfbc_custom_div", "seq-cdc")
+ALGORITHMS_TO_COMPARE <- c("fsc","ae","ram","mii","pci","rabin_32","buzhash_32","gear","seq-cdc")
+DATASET_ORDER <- c("random", "code", "web", "db", "vmb")
+ALGORITHM_ORDER <- c("rabin_32", "buzhash_32", "gear", "ae", "ram", "pci", "mii", "seq-cdc")
 
 POWER_OF_TWO_SIZES = c(512,1024,2048,4096,8192)
 
@@ -88,10 +88,8 @@ rename_datasets <- function(df) {
       dataset=fct_recode(
         dataset,
         CODE="code",
-        LNX="lnx",
         DB="db",
         VMB="vmb",
-        PDF="pdf",
         RAND="random",
         WEB="web",
         ZERO="zero",
