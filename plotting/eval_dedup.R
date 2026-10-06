@@ -10,7 +10,6 @@ library(bit64)
 library(RColorBrewer)
 library(forcats)
 library(ztable)
-library(arrow)
 library(grid)
 
 source("base_setup.R")
@@ -18,6 +17,7 @@ source("plot_setup.R")
 source("table_setup.R")
 source("tikz_setup.R")
 source("util.R")
+source("dedup_pareto.R")
 
 ######################################################################
 # DEDUPLICATION RATIO
@@ -39,6 +39,11 @@ for (f in infiles) {
   rm(tmp)
 }
 
+# Use the original byte totals for matched-population validation, before the
+# legacy configured-target plot's VMB size override below.
+pareto_results <- run_dedup_pareto(
+  dedup_data, Sys.glob(file.path(csv_dir, "csd_*.csv.gz")), dedup_files=infiles)
+
 # temp fix for zero dataset_size on vmb because directory is symlink
 library(bit64)
 dedup_data <- dedup_data %>%
@@ -54,14 +59,6 @@ dedup_data <- dedup_data %>%
 d <- dedup_data %>%
   filter(algorithm %in% ALGORITHMS_TO_COMPARE) %>%
   filter(target_chunk_size %in% POWER_OF_TWO_SIZES)
-
-######################################################################
-# Metadata-adjusted achieved-size comparison
-# The previous exploratory block joined every configuration to Rabin-only
-# counts and hard-coded legacy PDF/LNX sizes. It cannot establish consistent
-# per-run byte accounting. Use ../analysis/dedup_pareto.py with the matched
-# normalized CSV contract in ../analysis/README.md instead. Existing configured-
-# target figures remain separate from that achieved-size analysis.
 
 ######################################################################
 # Dedup overview per dataset
