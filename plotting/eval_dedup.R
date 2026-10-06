@@ -57,7 +57,7 @@ d <- dedup_data %>%
 
 # Reuse the means already produced by the CSD evaluation and the ratios above.
 # An existing in-memory DuckDB summary avoids any additional input reads.
-# Otherwise use the saved numerical summary, or the generated mean-size table.
+# Otherwise use the saved numerical CSV summary.
 pareto_means <- load_pareto_means(
   summary=if (exists("duckdb_df")) duckdb_df else NULL,
   path=getOption("cdc.csd_mean_summary", NULL))

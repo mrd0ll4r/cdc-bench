@@ -31,21 +31,27 @@ individual chunks is required.
 
 Mean sources, in order of preference:
 
-- An explicit path selected with `options(cdc.csd_mean_summary="/path/to/summary")`.
+- An explicit path selected with `options(cdc.csd_mean_summary="/path/to/summary.csv")`.
 - The existing in-memory `duckdb_df` summary from the CSD evaluation.
 - `tab/csd_means.csv`, which `eval_csd.R` now saves from its existing aggregate
   before display rounding or target-error transformations.
-- The existing generated `tab/csd_means_sd_full.tex` table. This fallback reads
-  numeric mean cells, not plot coordinates. Its whole-byte rounding makes savings
-  and frontier membership approximate; warnings, plots, and `mean_rounded`
-  output flags identify this case. An explicit path can also select this table.
 
 The CSV accepts the existing wide aggregate (`mean_512`, `mean_1024`, etc.) or
-long columns `algorithm,dataset,target_chunk_size,mean_chunk_size`. No separate
-normalized CSV needs to be prepared when one of the existing artifacts is available.
-Unrounded numerical summaries are preferred for final figures. The existing
-paper table omits FSC; that configuration remains missing unless its means are
-available in a numerical summary.
+long columns `algorithm,dataset,target_chunk_size,mean_chunk_size`. Compressed
+`.csv.gz` summaries are also accepted. LaTeX tables and figures are outputs only;
+they are never read as data. Use the unrounded numerical aggregate.
+
+If the CSD aggregate is still available as `duckdb_df`, `eval_dedup.R` can use it
+directly. To persist it without recomputing anything:
+
+```r
+dir.create("tab", showWarnings=FALSE, recursive=TRUE)
+readr::write_csv(duckdb_df, "tab/csd_means.csv")
+```
+
+If neither the in-memory aggregate nor a saved numerical summary is available,
+missing means are reported in the coverage output. Existing formatted tables
+alone are insufficient for this workflow.
 
 For fractional deduplication savings d = 1 - U/S and achieved mean c = S/N,
 metadata-adjusted savings is `d - m/c`, equivalent to `1 - (U + m*N)/S`.
@@ -67,8 +73,8 @@ values are excluded and reported explicitly.
 Negative adjusted savings remain visible. Within each dataset and metadata cost,
 rings mark configurations for which no available point has both larger/equal
 mean and greater/equal savings, with at least one strict improvement. All exact
-ties remain. Comparisons use the supplied values without additional rounding;
-frontiers based on rounded table means are approximate. No points are interpolated.
+ties remain. Comparisons use the supplied values without additional rounding.
+No points are interpolated.
 
 Outputs use the existing `print_plot()` exporter:
 

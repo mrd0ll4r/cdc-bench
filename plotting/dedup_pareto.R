@@ -17,7 +17,7 @@ pareto_select <- function(x) {
 
 # Accept the existing wide DuckDB summary (mean_512, mean_1024, ...) or a
 # long summary. No chunk counts, input-byte totals, or unique-byte totals needed.
-pareto_mean_summary <- function(summary, rounded=FALSE) {
+pareto_mean_summary <- function(summary) {
   x <- as.data.frame(summary)
   if (!all(c("algorithm", "dataset") %in% names(x))) stop("Missing mean-summary keys")
   if (!all(c("target_chunk_size", "mean_chunk_size") %in% names(x))) {
@@ -29,32 +29,7 @@ pareto_mean_summary <- function(summary, rounded=FALSE) {
   }
   x <- pareto_select(x)[, c(PARETO_KEYS, "mean_chunk_size")]
   x$mean_chunk_size <- suppressWarnings(as.numeric(as.character(x$mean_chunk_size)))
-  x$mean_rounded <- rep(rounded, nrow(x))
   x
-}
-
-# Read the actual printed means from the existing generated table, not drawing
-# coordinates. This fallback is explicitly approximate (whole-byte rounding).
-read_pareto_mean_table <- function(path) {
-  rows <- list(); dataset <- NULL
-  for (line in readLines(path, warn=FALSE)) {
-    if (grepl("\\\\textbf\\{(RANDOM|RAND|CODE|WEB|VMB|DB)\\}", line)) {
-      dataset <- tolower(sub(".*\\\\textbf\\{([^}]+)\\}.*", "\\1", line))
-      next
-    }
-    fields <- strsplit(line, "&", fixed=TRUE)[[1]]
-    label <- trimws(fields[1])
-    if (is.null(dataset) || !(dataset %in% PARETO_DATASETS) || !(label %in% PARETO_ALGORITHMS)) next
-    if (length(fields) != 16) stop("Unexpected mean-table layout in ", path)
-    values <- fields[c(3,6,9,12,15)]
-    values <- gsub("\\\\(?:cellcolor|color)\\{[^}]*\\}", "", values, perl=TRUE)
-    values <- suppressWarnings(as.numeric(trimws(values)))
-    if (any(!is.finite(values) | values <= 0)) stop("Invalid printed mean in ", path)
-    rows[[length(rows)+1]] <- data.frame(algorithm=names(PARETO_ALGORITHMS)[match(label,PARETO_ALGORITHMS)],
-      dataset=dataset, target_chunk_size=PARETO_TARGETS, mean_chunk_size=values)
-  }
-  if (!length(rows)) stop("No supported mean-size rows in ", path)
-  pareto_mean_summary(do.call(rbind, rows), rounded=TRUE)
 }
 
 load_pareto_means <- function(summary=NULL, path=NULL) {
@@ -64,19 +39,18 @@ load_pareto_means <- function(summary=NULL, path=NULL) {
     return(result)
   }
   if (is.null(path)) {
-    candidates <- c("tab/csd_means.csv", "tab/csd_means_sd_full.tex")
-    path <- candidates[file.exists(candidates)][1]
+    path <- "tab/csd_means.csv"
   }
-  if (length(path) != 1 || is.na(path) || !file.exists(path)) {
-    warning("No saved CSD mean summary found; Pareto coverage will show missing means.", call.=FALSE)
+  if (length(path) != 1 || is.na(path) || !grepl("\\.csv(\\.gz)?$", path, ignore.case=TRUE))
+    stop("CSD mean input must be a numerical CSV summary (.csv or .csv.gz); LaTeX is output only.")
+  if (!file.exists(path)) {
+    warning("No saved CSD mean summary found. Supply the existing numerical CSD aggregate in memory or as tab/csd_means.csv; Pareto coverage will show missing means.", call.=FALSE)
     return(data.frame(algorithm=character(),dataset=character(),target_chunk_size=numeric(),
-                      mean_chunk_size=numeric(),mean_rounded=logical()))
+                      mean_chunk_size=numeric()))
   }
-  result <- if (tolower(tools::file_ext(path)) == "tex") read_pareto_mean_table(path) else {
-    x <- readr::read_csv(path, show_col_types=FALSE, name_repair="check_unique")
-    if (nrow(readr::problems(x))) stop("Malformed CSD mean summary")
-    pareto_mean_summary(x)
-  }
+  x <- readr::read_csv(path, show_col_types=FALSE, name_repair="check_unique")
+  if (nrow(readr::problems(x))) stop("Malformed CSD mean summary")
+  result <- pareto_mean_summary(x)
   attr(result,"source") <- normalizePath(path)
   result
 }
@@ -136,7 +110,6 @@ plot_dedup_pareto <- function(results, cost) {
   empty <- data.frame(dataset=factor(PARETO_DATASETS[counts == 0], levels=PARETO_DATASETS),
                       mean_chunk_size=rep(empty_x, sum(counts == 0)),
                       adjusted_savings=rep(0, sum(counts == 0)))
-  rounding_note <- if (any(x$mean_rounded)) "\nRounded mean-size table: savings and frontier are approximate" else ""
   ggplot2::ggplot(x, ggplot2::aes(mean_chunk_size, adjusted_savings*100)) +
     ggplot2::geom_point(ggplot2::aes(colour=algorithm, shape=algorithm), size=2) +
     ggplot2::geom_point(data=x[x$nondominated, , drop=FALSE], shape=1, size=4, colour="black") +
@@ -150,7 +123,7 @@ plot_dedup_pareto <- function(results, cost) {
                                 breaks=names(PARETO_ALGORITHMS), labels=PARETO_ALGORITHMS, drop=FALSE) +
     ggplot2::labs(x="Achieved mean chunk size (B)", y="Metadata-adjusted savings (%)",
       colour=NULL, shape=NULL,
-      subtitle=paste0(sprintf("Metadata: %d B/chunk; rings: nondominated available configurations", cost), rounding_note)) +
+      subtitle=sprintf("Metadata: %d B/chunk; rings: nondominated available configurations", cost)) +
     ggplot2::theme_bw(base_size=9) + ggplot2::theme(legend.position="bottom") +
     ggplot2::guides(colour=ggplot2::guide_legend(nrow=2), shape=ggplot2::guide_legend(nrow=2))
 }
@@ -164,8 +137,6 @@ run_dedup_pareto <- function(dedup, means, output_dir="tab", plot_writer=print_p
   if (any(matched$status != "ok")) warning(sprintf(
     "Pareto analysis: %d/180 configurations unavailable; see dedup-pareto-coverage.csv. Frontiers cover available results only.",
     sum(matched$status != "ok")),call.=FALSE)
-  if (any(results$mean_rounded)) warning(
-    "Using rounded mean-size table values: adjusted savings and frontier membership are approximate.",call.=FALSE)
   for (cost in c(28,48,64))
     plot_writer(plot_dedup_pareto(results,cost),paste0("dedup-pareto-",cost),width=7,height=5)
   invisible(list(results=results,coverage=matched))
