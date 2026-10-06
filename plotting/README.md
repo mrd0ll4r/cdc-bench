@@ -37,7 +37,7 @@ Mean sources, in order of preference:
 - `tab/csd_means.csv`, which `eval_csd.R` now saves from its existing aggregate
   before display rounding or target-error transformations.
 - If no summary is available, `csd_*.csv.gz` in the same `csv_dir` used for dedup
-  results. Means are calculated in bounded batches and saved to
+  results. DuckDB computes the grouped means directly from these files and saves
   `tab/csd_means.csv` for subsequent runs. This processes saved measurements;
   it does not execute any benchmark or rechunk the datasets.
 
@@ -61,8 +61,11 @@ An explicit summary path never falls back to another result collection.
 Existing formatted tables alone are insufficient for this workflow.
 
 Use one collection of CSD exports without overlapping copies or repeated runs.
-The fallback combines chunk-size sums and chunk counts across batches, including
-duplicates and final partial chunks; it does not average per-batch means.
+The fallback runs one DuckDB `AVG(chunk_size)` query grouped by algorithm,
+dataset, and target, including duplicates and final partial chunks. Only the
+small grouped summary is returned to R. It uses the `duckdb` and `DBI` R packages
+already used by `eval_csd.R`. Invalid chunks and CSV parse errors stop aggregation
+rather than being silently dropped.
 Remove the cached summary or select the appropriate CSV explicitly when switching
 to a different result collection.
 

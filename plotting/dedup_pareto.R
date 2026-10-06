@@ -32,34 +32,36 @@ pareto_mean_summary <- function(summary) {
   x
 }
 
-# Aggregate existing emitted-chunk results in bounded batches. Combine sums and
-# counts, not batch means, so repeated chunks and short final batches all count.
-aggregate_pareto_means <- function(files, chunk_size=1000000) {
-  totals <- data.frame(algorithm=character(),dataset=character(),target_chunk_size=numeric(),
-                       chunk_bytes=numeric(),chunk_count=numeric())
-  if (anyDuplicated(normalizePath(files))) stop("Repeated CSD input paths")
-  for (file in files) {
-    message("Reading saved chunk sizes: ", normalizePath(file))
-    callback <- readr::SideEffectChunkCallback$new(function(x,pos) {
-      if (!all(c(PARETO_KEYS,"chunk_size") %in% names(x))) stop("Missing CSD chunk columns in ",file)
-      if (nrow(readr::problems(x))) stop("Malformed CSD chunk records in ",file)
-      x <- pareto_select(x)
-      if (!nrow(x)) return(invisible(NULL))
-      if (any(!is.finite(x$chunk_size) | x$chunk_size < 1 | x$chunk_size != floor(x$chunk_size)))
-        stop("Invalid chunk sizes in ",file)
-      grouped <- dplyr::group_by(x,dplyr::across(dplyr::all_of(PARETO_KEYS)))
-      batch <- dplyr::summarise(grouped,chunk_bytes=sum(chunk_size),chunk_count=dplyr::n(),.groups="drop")
-      combined <- dplyr::group_by(rbind(totals,as.data.frame(batch)),
-                                 dplyr::across(dplyr::all_of(PARETO_KEYS)))
-      totals <<- as.data.frame(dplyr::summarise(combined,chunk_bytes=sum(chunk_bytes),
-                                               chunk_count=sum(chunk_count),.groups="drop"))
-    })
-    readr::read_csv_chunked(file,callback,chunk_size=chunk_size,progress=FALSE,
-      col_types=readr::cols(algorithm=readr::col_character(),dataset=readr::col_character(),
-                          target_chunk_size=readr::col_double(),chunk_size=readr::col_double()))
-  }
-  totals$mean_chunk_size <- totals$chunk_bytes/totals$chunk_count
-  pareto_mean_summary(totals)
+# Let DuckDB scan and aggregate the saved chunk files; only the small grouped
+# summary enters R. AVG includes repeated chunks and final partial chunks.
+aggregate_pareto_means <- function(files) {
+  files <- normalizePath(files,mustWork=TRUE)
+  if (!length(files)) stop("No CSD input files")
+  if (anyDuplicated(files)) stop("Repeated CSD input paths")
+  if (!requireNamespace("duckdb",quietly=TRUE) || !requireNamespace("DBI",quietly=TRUE))
+    stop("DuckDB aggregation requires the R packages duckdb and DBI, as used by eval_csd.R.")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con,shutdown=TRUE),add=TRUE)
+  quoted <- function(x) paste(DBI::dbQuoteString(con,x),collapse=",")
+  message("Aggregating ",length(files)," saved CSD files with DuckDB.")
+  query <- sprintf("
+    SELECT algorithm, lower(dataset) AS dataset, target_chunk_size,
+           AVG(chunk_size) AS mean_chunk_size,
+           SUM(CASE WHEN chunk_size IS NULL OR NOT isfinite(chunk_size)
+                         OR chunk_size < 1 OR chunk_size != floor(chunk_size)
+                    THEN 1 ELSE 0 END) AS invalid_chunks
+    FROM read_csv_auto([%s], header=true, ignore_errors=false, nullstr='NA',
+         types={'algorithm':'VARCHAR', 'dataset':'VARCHAR',
+                'target_chunk_size':'DOUBLE', 'chunk_size':'DOUBLE'})
+    WHERE algorithm IN (%s) AND lower(dataset) IN (%s)
+          AND target_chunk_size IN (%s)
+    GROUP BY algorithm, lower(dataset), target_chunk_size
+    ORDER BY algorithm, dataset, target_chunk_size",
+    quoted(files),quoted(names(PARETO_ALGORITHMS)),quoted(PARETO_DATASETS),
+    paste(PARETO_TARGETS,collapse=","))
+  result <- DBI::dbGetQuery(con,query)
+  if (any(result$invalid_chunks > 0)) stop("Invalid chunk sizes in CSD inputs")
+  pareto_mean_summary(result)
 }
 
 load_pareto_means <- function(summary=NULL, path=NULL, chunk_dir=NULL) {

@@ -110,15 +110,15 @@ test_that("missing artifacts produce coverage and empty panels", {
   expect_warning(r <- run_dedup_pareto(d,empty,file.path(tmp,"empty"),writer),"180/180")
   expect_equal(nrow(r$results),0)
 })
-test_that("saved chunk sizes yield weighted means across batches and datasets", {
-  input <- file.path(tmp,"chunks")
+test_that("DuckDB aggregates all saved chunks and reuses the resulting cache", {
+  input <- file.path(tmp,"chunks with ' quote")
   dir.create(input)
   chunks <- d[rep(seq_len(nrow(d)),each=3),PARETO_KEYS]
   chunks$chunk_size <- rep(c(400,400,50),nrow(d))
   files <- file.path(input,paste0("csd_",PARETO_DATASETS,".csv.gz"))
   for (i in seq_along(files))
     readr::write_csv(chunks[chunks$dataset == PARETO_DATASETS[i],],files[i])
-  m <- aggregate_pareto_means(files,chunk_size=7)
+  m <- aggregate_pareto_means(files)
   expect_equal(nrow(m),180)
   expect_equal(m$mean_chunk_size,rep(850/3,180))
   expect_true(all(match_pareto_summaries(d,m)$status == "ok"))
@@ -145,12 +145,15 @@ test_that("saved chunk sizes yield weighted means across batches and datasets", 
 })
 test_that("malformed chunks cannot silently create a mean summary", {
   file <- file.path(tmp,"invalid-chunks.csv.gz")
-  bad <- d[1:3,PARETO_KEYS]; bad$chunk_size <- c(100,NA,20)
+  bad <- d[1:3,PARETO_KEYS]
+  for (value in c(NA,1.5,Inf,0,-1)) {
+    bad$chunk_size <- c(100,value,20)
+    readr::write_csv(bad,file)
+    expect_error(aggregate_pareto_means(file),"Invalid chunk sizes")
+  }
+  bad$chunk_size <- c("100","not-a-number","20")
   readr::write_csv(bad,file)
-  expect_error(aggregate_pareto_means(file,chunk_size=2),"Invalid chunk sizes")
-  bad$chunk_size <- c(100,1.5,20)
-  readr::write_csv(bad,file)
-  expect_error(aggregate_pareto_means(file,chunk_size=2),"Invalid chunk sizes")
+  expect_error(aggregate_pareto_means(file),"Conversion|CSV Error")
   expect_error(aggregate_pareto_means(c(file,file)),"Repeated CSD")
 })
 unlink(tmp,recursive=TRUE)
