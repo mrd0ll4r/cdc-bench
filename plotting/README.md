@@ -21,3 +21,11 @@ They roughly correspond to the sections of the paper:
 - `eval_perf.R` evaluates computational performance, i.e., throughput and microarchitectural performance metrics.
 - `eval_csd.R` evaluates chunk size distributions.
 - `eval_dedup.R` evaluates deduplication.
+
+## Quantitative manuscript tables
+
+`eval_csd.R` writes the numerical CSD overview (`tab/csd_overview.tex`) directly
+from the measured mean/SD data: equal-weight relative target error and CV over
+five targets, without clipping. `eval_summary.R` writes the worst-case summary
+at 2 KiB from a provenance-checked run-summary CSV. See
+[quantitative table definitions and input requirements](../analysis/quantitative_tables.md).
