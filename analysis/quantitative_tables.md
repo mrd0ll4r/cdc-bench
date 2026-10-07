@@ -17,9 +17,14 @@ over targets 512, 1024, 2048, 4096, 8192 bytes. Error is displayed as a percenta
 CV is dimensionless. Neither metric is clipped or weighted by target size or
 chunk count. The detailed mean/SD table keeps its existing color encoding.
 
-The overview uses nine Reds shades, linearly scaled from the minimum to the
-maximum unrounded value separately across each metric's entire block. Lower
-values are lighter. Large outliers therefore make most other cells pale.
+The overview retains the original color scores independently of the displayed
+metrics. For each algorithm/dataset, the error color score is the mean of
+`min(abs(mean - target), target)` in bytes over the five targets; the dispersion
+color score is the mean of `min(SD / (2 * mean), 1)`. Clipping happens at each
+target before averaging. These are the original scores, not clipped versions
+of the new aggregate metrics. Nine Reds shades are scaled linearly from the
+minimum to the maximum score separately across each entire block, as before.
+Lower color scores are lighter; displayed percentages and CVs remain unclipped.
 Each cell uses black or white text, whichever has higher contrast against its
 background. Missing values are uncolored; a constant block uses the lightest
 shade. The generated TeX includes its own color definitions and needs the
@@ -29,7 +34,7 @@ Each aggregate requires all five settings. Missing/invalid means or SDs produce
 an unavailable aggregate, shown as a dash with `REBUTTAL-DATA-PENDING`; an absent
 SD does not suppress an otherwise complete target-error aggregate. All eight
 CDC algorithms and all five datasets are retained. The `.audit.rds` file beside
-the table contains the measured statistics and unrounded aggregates.
+the table contains the measured statistics, unrounded aggregates and color scores.
 
 ## Table X: R summary evaluation
 

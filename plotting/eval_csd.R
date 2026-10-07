@@ -138,6 +138,12 @@ means[!is.finite(means) | means <= 0] <- NA_real_
 sds[!is.finite(sds) | sds < 0] <- NA_real_
 overview$error <- rowMeans(abs(sweep(means, 2, overview_targets, "/") - 1))
 overview$cv <- rowMeans(sds / means)
+# Preserve the original color scores separately from the displayed metrics.
+# Clip each target's absolute error in bytes at that target and half-CV at 1,
+# then average across targets (not clipping the aggregate after averaging).
+overview$error_color <- rowMeans(pmin(abs(sweep(means, 2, overview_targets, "-")),
+                                      rep(overview_targets, each = nrow(means))))
+overview$cv_color <- rowMeans(pmin(sds / (2 * means), 1))
 # rowMeans deliberately propagates NA: an aggregate requires all five targets.
 saveRDS(list(measured = df, overview = overview), "tab/csd_overview.audit.rds")
 
@@ -149,15 +155,21 @@ overview_table <- overview %>%
          all_of(paste0("cv_", overview_datasets))) %>%
   rename_algorithms()
 
+overview_color_table <- overview %>%
+  select(algorithm, dataset, error_color, cv_color) %>%
+  pivot_wider(names_from = dataset, values_from = c(error_color, cv_color)) %>%
+  select(all_of(paste0("error_color_", overview_datasets)),
+         all_of(paste0("cv_color_", overview_datasets)))
+overview_color_values <- as.matrix(overview_color_table)
 overview_palette <- RColorBrewer::brewer.pal(9, "Reds")
 overview_color_names <- paste0("csdoverview", seq_along(overview_palette))
 overview_values <- as.matrix(overview_table[, -1])
 overview_shades <- matrix(NA_integer_, nrow(overview_values), ncol(overview_values))
 limits <- c(NA_real_, NA_real_)
-# Match makeHeatmap(margin = 0), independently for error and CV. Use unrounded
-# values, ignore missing cells, and use the lightest shade for a constant block.
+# Match the original makeHeatmap(margin = 0) on the clipped color scores,
+# independently for error and CV. Missing cells remain uncolored.
 for (columns in list(1:5, 6:10)) {
-  block <- overview_values[, columns, drop = FALSE]
+  block <- overview_color_values[, columns, drop = FALSE]
   present <- is.finite(block)
   if (any(present)) {
     limits <- range(block[present])
@@ -201,8 +213,9 @@ for (i in seq_len(nrow(overview_table))) {
                                    collapse = " & "), " \\\\"))
 }
 overview_lines <- c(overview_lines, "\\bottomrule", "\\end{tabular}",
-                    paste0("\\par\\smallskip\\footnotesize Shading is scaled independently ",
-                           "within each metric: lighter = lower, darker = higher."),
+                    paste0("\\par\\smallskip\\footnotesize Colors retain the original clipped ",
+                           "scores; displayed values are unclipped. Lighter = lower color score, ",
+                           "darker = higher, scaled separately within each block."),
                     "\\endgroup")
 if (any(!is.finite(overview_values))) {
   overview_lines <- c(overview_lines, paste0(
@@ -213,6 +226,7 @@ writeLines(overview_lines, "tab/csd_overview.tex")
 rm(overview_targets, overview_datasets, overview, means, sds, overview_table,
    overview_lines, values, cells, overview_palette, overview_color_names,
    overview_values, overview_shades, overview_rgb, overview_linear_rgb,
+   overview_color_table, overview_color_values,
    overview_luminance, overview_text_colors, columns, block, present, shades, limits)
 
 rm(df, ztab, cgroup, rgroup, n.cgroup, n.rgroup, color_scale_df)
