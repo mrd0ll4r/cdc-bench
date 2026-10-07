@@ -9,11 +9,11 @@ d$dedup_ratio <- .4
 means <- d[PARETO_KEYS]; means$mean_chunk_size <- 250
 matched <- match_pareto_summaries(d,means)
 
-test_that("28-byte accounting agrees with independent totals", {
+test_that("64-byte accounting agrees with independent totals", {
   r <- calculate_dedup_pareto(matched)
   expect_equal(nrow(r),180)
-  expect_equal(unique(r$metadata_bytes),28)
-  expect_equal(unique(r$adjusted_savings),1-(600+28*4)/1000)
+  expect_equal(unique(r$metadata_bytes),64)
+  expect_equal(unique(r$adjusted_savings),1-(600+64*4)/1000)
 })
 test_that("dominance retains ties and is isolated by dataset", {
   expect_equal(pareto_nondominated(c(100,50,50,100),c(.5,.7,.7,.3)),c(TRUE,TRUE,TRUE,FALSE))
@@ -27,8 +27,8 @@ test_that("negative savings remain visible", {
   m <- matched[matched$dataset == "code",][1,]
   m$mean_chunk_size <- 10; m$dedup_ratio <- .2
   r <- calculate_dedup_pareto(m)
-  expect_equal(r$adjusted_savings,-2.6)
-  expect_equal(ggplot_build(plot_dedup_pareto(r,"code"))$data[[1]]$y,-2.6)
+  expect_equal(r$adjusted_savings,-6.2)
+  expect_equal(ggplot_build(plot_dedup_pareto(r,"code"))$data[[1]]$y,-6.2)
 })
 test_that("missing or invalid inputs stop generation and retain diagnostics", {
   writer <- function(...) stop("must not plot")

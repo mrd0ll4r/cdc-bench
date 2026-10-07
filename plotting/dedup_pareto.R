@@ -77,9 +77,9 @@ pareto_nondominated <- function(mean, savings) {
 
 calculate_dedup_pareto <- function(matched) {
   x <- matched[matched$status == "ok",setdiff(names(matched),"status"),drop=FALSE]
-  x$metadata_bytes <- rep(28,nrow(x))
+  x$metadata_bytes <- rep(64,nrow(x))
   x$raw_savings <- x$dedup_ratio
-  x$adjusted_savings <- x$dedup_ratio-28/x$mean_chunk_size
+  x$adjusted_savings <- x$dedup_ratio-64/x$mean_chunk_size
   x$nondominated <- rep(FALSE,nrow(x))
   for (dataset in PARETO_DATASETS) {
     ix <- which(x$dataset == dataset)

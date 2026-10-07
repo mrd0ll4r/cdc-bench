@@ -25,7 +25,7 @@ They roughly correspond to the sections of the paper:
 ## Achieved-size and metadata-adjusted analysis
 
 Running `eval_dedup.R` produces the achieved-size Pareto analysis at a fixed
-illustrative metadata cost of **28 B per emitted chunk**.
+illustrative metadata cost of **64 B per emitted chunk**.
 
 Inputs are the existing `dedup_*.csv.gz` and `csd_*.csv.gz` files in `csv_dir`.
 The script uses its existing deduplication ratios and runs one DuckDB
@@ -35,8 +35,8 @@ chunks. Only the grouped means enter R. There is no summary cache, session-objec
 lookup, alternate input path, or LaTeX input. No benchmarks are rerun.
 
 Use one consistent result collection without overlapping exports or repeated runs.
-The metadata-adjusted savings are `d - 28/c`, where d is fractional deduplication
-savings and c is achieved mean size. This equals `1 - (U + 28*N)/S`.
+The metadata-adjusted savings are `d - 64/c`, where d is fractional deduplication
+savings and c is achieved mean size. This equals `1 - (U + 64*N)/S`.
 Negative savings remain visible. Rings identify nondominated measured points
 within each dataset, maximizing both adjusted savings and mean size; ties remain.
 
@@ -52,7 +52,7 @@ The existing `print_plot()` exporter writes separate TeX/PNG assets:
 - `fig/dedup_pareto_legendonly`: shared legend, 7 by 1 inches.
 
 The explicit 11-point theme, color/shape scales, and legend exporter are shared with the configured-target deduplication
-figures. Ratio values are displayed as fractions, matching `dedup_overview`. The CSV `tab/dedup-adjusted.csv` contains the 180 configurations at 28 B.
+figures. Ratio values are displayed as fractions, matching `dedup_overview`. The CSV `tab/dedup-adjusted.csv` contains the 180 configurations at 64 B.
 
 Run the analysis tests from the repository root (including DuckDB integration):
 
