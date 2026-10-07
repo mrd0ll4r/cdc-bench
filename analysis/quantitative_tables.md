@@ -63,9 +63,13 @@ Rscript eval_summary.R --perf-dir ../csv
 ```
 
 `--perf-dir DIR` selects a separate directory for performance CSVs only; it
-defaults to `CSV_DIR`. Files need not be moved or copied. DB and RAND timings
-alone cannot supply the four-dataset throughput metric. With `--allow-missing`,
-that metric remains a dash while complete CSD/dedup metrics are still reported.
+defaults to `CSV_DIR`. Files need not be moved or copied. The throughput column
+uses the existing RAND timings at 2048 B, as in the paper's efficiency analysis.
+It is labeled RAND throughput and is not a worst-case value across datasets.
+DB snapshot timings are ignored. No new benchmark runs are needed when the
+existing CSD/dedup files cover the four realistic datasets and RAND timings
+cover the selected algorithms. With `--allow-missing`, unavailable metrics
+remain dashes while independent complete metrics are still reported.
 The script prints the resolved input directories and selected file counts, and
 missing-data errors identify the absent measurements rather than only keys.
 The output directory is created automatically. Copy the
@@ -85,19 +89,20 @@ with the existing experiment schemas:
 | `dedup_*.csv[.gz]` | `algorithm,dataset,dataset_size,target_chunk_size,unique_chunks_size_sum` | Unique chunk bytes |
 | `perf_*.csv[.gz]` | `algorithm,dataset,dataset_size,target_chunk_size,iteration,event,value` | Per-iteration MiB/s from `task-clock` in milliseconds; then median throughput |
 
-Only target 2048 for `rabin_32,buzhash_32,gear,ae,ram,pci,mii,seq-cdc` and
-CODE/WEB/VMB/DB is aggregated. Dataset names are case-insensitive. Other
-algorithms, targets, datasets and performance events are ignored. The checked-in
-`scripts/speed.sh` currently records RAND only: those timings cannot populate
-Table X. Supply the existing timing outputs for the four realistic datasets;
-the script does not substitute RAND timings or start experiments.
+Only target 2048 for `rabin_32,buzhash_32,gear,ae,ram,pci,mii,seq-cdc` is used.
+CSD/dedup inputs use CODE/WEB/VMB/DB; performance inputs use RAND. Dataset names
+are case-insensitive, and `random` is accepted as RAND. Other algorithms,
+targets, datasets and performance events are ignored. The existing RAND
+experiments populate the throughput column; the script starts no experiments.
 
 CSD files are streamed in batches of one million rows and combined with a
 stable pooled-variance calculation, rather than loading the entire population
 into one R vector. Terminal chunks and every duplicate occurrence count toward
 N and input bytes. The sum of emitted chunk sizes supplies input bytes S.
-Positive byte counts in dedup/performance outputs must match S, and input sizes
-must agree across algorithms for each dataset. A zero dedup `dataset_size`
+Positive byte counts in dedup outputs must match S, and input sizes must agree
+across algorithms for each dataset. RAND performance byte counts must agree
+across selected algorithms and repetition files; they are independent of the
+realistic-dataset CSD totals. A zero dedup `dataset_size`
 (the historical VMB symlink issue) is ignored in favor of measured CSD bytes;
 no dataset size is hardcoded. Unique bytes cannot exceed input bytes.
 
@@ -117,21 +122,23 @@ cannot be distinguished from independent runs. These legacy CSVs do not contain 
 run IDs: byte-count checks and source-file records cannot establish identical
 dataset content/order. Select matching runs using the original run records.
 
-Add `--allow-missing` only for review placeholders: each reported metric still
-requires all four datasets, and CDC ranking is withheld for incomplete metrics.
+Add `--allow-missing` only for review placeholders: storage and chunk-size
+extrema require all four realistic datasets, throughput requires RAND timings,
+and CDC ranking is withheld for incomplete metrics.
 Independent complete metrics remain available. Add `--include-fsc` to include a
 complete FSC reference outside the eight-algorithm CDC rankings. Missing inputs
 fail by default and the error names the incomplete configurations.
 
-Table X reports minimum `1 - (unique_bytes + 64*chunk_count)/input_bytes`,
-minimum median throughput, maximum absolute relative target error, and maximum
-CV across CODE/WEB/VMB/DB. The 64-byte allowance per emitted chunk is illustrative;
+Table X reports minimum `1 - (unique_bytes + 64*chunk_count)/input_bytes`, maximum
+absolute relative target error, and maximum CV across CODE/WEB/VMB/DB, alongside
+median throughput on RAND. The 64-byte allowance per emitted chunk is illustrative;
 negative savings are retained. Superscripts identify all datasets attaining an
 extremum. Best and second distinct CDC values are bold and underlined, with ties
 retained; FSC does not affect rankings. Calculations use R double precision and
 round only for the two-decimal display. Ties use equality of unrounded values.
 The accompanying `.audit.rds` records source-file paths, sizes and modification
-times, derived measurements per configuration, timing samples, unrounded summary
+times, derived measurements per realistic-dataset configuration, separate RAND
+throughput configurations, timing samples, unrounded summary
 metrics and extremal datasets. No manually supplied provenance columns are needed.
 
 ## Data still required

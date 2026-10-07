@@ -48,7 +48,7 @@ datasets <- c("CODE", "WEB", "VMB", "DB")
 codes <- c("C", "W", "V", "D")
 keys <- c("algorithm", "dataset", "target_chunk_size")
 fields <- c("mean_chunk_size", "sd_chunk_size", "dataset_size", "chunk_count",
-            "unique_chunks_size_sum", "median_throughput_mib_s")
+            "unique_chunks_size_sum")
 
 input_files <- function(prefix) {
   directory <- if (prefix == "perf") perf_dir else csv_dir
@@ -77,9 +77,10 @@ message(sprintf("Selected raw CSV files: %d CSD, %d dedup, %d performance",
                 length(files$csd), length(files$dedup), length(files$perf)))
 
 # Keep one selected record per algorithm/dataset, matching Table X's 2 KiB domain.
-select_domain <- function(x) {
+select_domain <- function(x, domain = datasets) {
   x$dataset <- toupper(x$dataset)
-  x[x$algorithm %in% algorithms & x$dataset %in% datasets &
+  x$dataset[x$dataset == "RANDOM"] <- "RAND"
+  x[x$algorithm %in% algorithms & x$dataset %in% domain &
       !is.na(x$target_chunk_size) & x$target_chunk_size == 2048, , drop = FALSE]
 }
 key_of <- function(x) paste(x$algorithm, x$dataset, sep = ":")
@@ -89,7 +90,7 @@ check_integer <- function(x, field, zero = FALSE) {
     stop(paste("Invalid integer", field))
   }
 }
-read_input <- function(file, extra, callback) {
+read_input <- function(file, extra, callback, domain = datasets) {
   columns <- c(keys, extra)
   header <- names(readr::read_csv(file, n_max = 0, name_repair = "minimal",
                                  col_types = readr::cols(.default = readr::col_character()),
@@ -103,7 +104,7 @@ read_input <- function(file, extra, callback) {
   # unsupported perf events do not invalidate the task-clock measurements.
   readr::read_csv_chunked(file, readr::SideEffectChunkCallback$new(function(x, pos) {
     readr::stop_for_problems(x)
-    callback(select_domain(x))
+    callback(select_domain(x, domain))
   }), chunk_size = 1000000, col_types = types, progress = FALSE, show_col_types = FALSE)
 }
 csd <- new.env(parent = emptyenv())
@@ -175,18 +176,17 @@ for (file in files$perf) {
                          iterations = c(old$iterations, iteration),
                          throughput = c(old$throughput, size / (milliseconds / 1000) / 2^20))
     }
-  })
+  }, domain = "RAND")
 }
 
 selected <- expand.grid(algorithm = algorithms, dataset = datasets,
                         target_chunk_size = 2048, stringsAsFactors = FALSE)
 for (field in fields) selected[[field]] <- NA_real_
-for (field in c("csd_file", "dedup_file", "perf_file")) selected[[field]] <- NA_character_
+for (field in c("csd_file", "dedup_file")) selected[[field]] <- NA_character_
 for (i in seq_len(nrow(selected))) {
   key <- key_of(selected[i, ])[1]
   csd_row <- csd[[key]]
   dedup_row <- dedup[[key]]
-  perf_row <- perf[[key]]
   if (!is.null(csd_row)) {
     selected$mean_chunk_size[i] <- csd_row$mean
     selected$sd_chunk_size[i] <- if (csd_row$n > 1) sqrt(csd_row$m2 / (csd_row$n - 1)) else NA_real_
@@ -198,33 +198,47 @@ for (i in seq_len(nrow(selected))) {
     selected$unique_chunks_size_sum[i] <- dedup_row$unique
     selected$dedup_file[i] <- dedup_row$file
   }
-  if (!is.null(perf_row)) {
-    selected$median_throughput_mib_s[i] <- median(perf_row$throughput)
-    selected$perf_file[i] <- paste(unique(perf_row$files), collapse = "; ")
-  }
   sizes <- c(if (!is.null(csd_row)) csd_row$bytes,
-             if (!is.null(dedup_row) && dedup_row$size > 0) dedup_row$size,
-             if (!is.null(perf_row)) perf_row$size)
-  if (length(unique(sizes)) > 1L) stop(paste("CSD/dedup/perf input byte counts disagree for", key))
+             if (!is.null(dedup_row) && dedup_row$size > 0) dedup_row$size)
+  if (length(unique(sizes)) > 1L) stop(paste("CSD/dedup input byte counts disagree for", key))
   if (!is.null(dedup_row) && length(sizes) && dedup_row$unique > sizes[1]) stop(paste("Unique bytes exceed input bytes for", key))
 }
 for (ds in datasets) {
-  sizes <- c(selected$dataset_size[selected$dataset == ds],
-             vapply(as.list(perf)[paste(algorithms, ds, sep = ":")],
-                    function(p) if (is.null(p)) NA_real_ else p$size, numeric(1)))
+  sizes <- selected$dataset_size[selected$dataset == ds]
   if (length(unique(na.omit(sizes))) > 1L) stop(paste("Input byte counts differ across algorithms for", ds))
 }
+# Throughput uses the existing RAND benchmark, independently of the four
+# realistic datasets used for storage savings and chunk-size statistics.
+throughput <- data.frame(algorithm = algorithms, dataset = "RAND", target_chunk_size = 2048,
+                         dataset_size = NA_real_, median_throughput_mib_s = NA_real_,
+                         perf_file = NA_character_)
+for (i in seq_along(algorithms)) {
+  p <- perf[[paste(algorithms[i], "RAND", sep = ":")]]
+  if (!is.null(p)) {
+    throughput$dataset_size[i] <- p$size
+    throughput$median_throughput_mib_s[i] <- median(p$throughput)
+    throughput$perf_file[i] <- paste(unique(p$files), collapse = "; ")
+  }
+}
+if (length(unique(na.omit(throughput$dataset_size))) > 1L) {
+  stop("RAND input byte counts differ across algorithms")
+}
 incomplete <- !complete.cases(selected[fields])
-if (!allow_missing && any(incomplete)) {
+missing_throughput <- is.na(throughput$median_throughput_mib_s)
+if (!allow_missing && (any(incomplete) || any(missing_throughput))) {
   missing_fields <- apply(is.na(selected[fields]), 1, function(missing) paste(fields[missing], collapse = ", "))
   missing_groups <- split(key_of(selected[incomplete, ]), missing_fields[incomplete])
   details <- vapply(names(missing_groups), function(missing) {
     paste0("  Missing ", missing, ":\n    ", paste(missing_groups[[missing]], collapse = ", "))
   }, character(1))
+  if (any(missing_throughput)) {
+    details <- c(details, paste0("  Missing median_throughput_mib_s on RAND:\n    ",
+                                paste(key_of(throughput[missing_throughput, ]), collapse = ", ")))
+  }
   stop(paste0(
     "Incomplete raw measurements at 2048 B:\n", paste(details, collapse = "\n"),
     "\nMean, SD, input bytes and chunk count come from CSD; unique bytes from dedup; ",
-    "throughput from performance task-clock rows. Check the selected directories and filenames above. ",
+    "throughput from RAND performance task-clock rows. Check the selected directories and filenames above. ",
     "Use --allow-missing only for review placeholders."
   ), call. = FALSE)
 }
@@ -240,6 +254,10 @@ for (i in seq_along(algorithms)) {
   group <- selected[selected$algorithm == algorithms[i], ]
   group <- group[match(datasets, group$dataset), ]
   for (j in seq_along(metrics)) {
+    if (j == 2L) {
+      values[i, j] <- throughput$median_throughput_mib_s[i]
+      next
+    }
     v <- group[[metrics[j]]]
     if (all(is.finite(v))) {
       values[i, j] <- if (j <= 2) min(v) else max(v)
@@ -255,7 +273,7 @@ ranks <- lapply(seq_along(metrics), function(j) {
 lines <- c(
   "\\begingroup", "\\scriptsize\\setlength{\\tabcolsep}{3pt}",
   "\\begin{tabular}{lrrrr}", "\\toprule",
-  "Algorithm & Min. $D_{64}$ & Min. throughput & Max. error & Max. CV \\\\",
+  "Algorithm & Min. $D_{64}$ & RAND throughput & Max. error & Max. CV \\\\",
   "& (\\%) $\\uparrow$ & (MiB/s) $\\uparrow$ & (\\%) $\\downarrow$ & $\\downarrow$ \\\\",
   "\\midrule"
 )
@@ -274,12 +292,12 @@ for (i in seq_along(algorithms)) {
 }
 lines <- c(lines, "\\bottomrule", "\\end{tabular}", "\\endgroup",
            paste0("\\par\\smallskip\\footnotesize Superscripts identify every dataset attaining the extremum: ",
-                  "C = CODE, W = WEB, V = VMB, D = DB. Bold: best; underline: second distinct value ",
+                  "C = CODE, W = WEB, V = VMB, D = DB. Throughput is the median on RAND. Bold: best; underline: second distinct value ",
                   "among the eight CDC algorithms, retaining ties in unrounded values. Arrows indicate ",
                   "preferred direction. Ranking is withheld for any incomplete metric."))
 if (anyNA(values)) {
   lines <- c(lines, paste0("\\par\\smallskip\\footnotesize\\textbf{REBUTTAL-DATA-PENDING:} ",
-                          "Dashes denote unavailable worst-case values, not zero. Each value requires all four realistic datasets."))
+                          "Dashes denote unavailable values, not zero. Storage and chunk-size extrema require all four realistic datasets; throughput requires RAND timings."))
 }
 dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
 writeLines(lines, output_path)
@@ -287,6 +305,7 @@ source_files <- normalizePath(as.character(unlist(files)), mustWork = TRUE)
 saveRDS(list(input_directory = normalizePath(csv_dir),
              performance_directory = normalizePath(perf_dir),
              source_files = file.info(source_files)[, c("size", "mtime"), drop = FALSE],
-             configurations = selected, performance_samples = as.list(perf),
+             configurations = selected, throughput_configurations = throughput,
+             performance_samples = as.list(perf),
              values = values, extrema = extrema),
         paste0(sub("\\.tex$", "", output_path), ".audit.rds"))
