@@ -1,5 +1,6 @@
 # Table X directly from the existing experiment CSVs (plain or gzip).
-# From plotting/: Rscript --vanilla eval_summary.R ../csv tab/summary.tex
+# From plotting/: Rscript eval_summary.R ../csv tab/summary.tex
+# Keep startup profiles enabled so .Rprofile activates the renv library.
 # Defaults: csv/ and tab/summary.tex. Requires the existing readr dependency.
 # Optional: --allow-missing (review only), --include-fsc (unranked reference).
 
@@ -16,7 +17,14 @@ if (length(paths) > 2L || any(startsWith(paths, "--"))) stop(usage)
 csv_dir <- if (length(paths)) paths[1] else "csv"
 output_path <- if (length(paths) > 1L) paths[2] else "tab/summary.tex"
 if (!dir.exists(csv_dir)) stop(paste("Experiment directory does not exist:", csv_dir))
-if (!requireNamespace("readr", quietly = TRUE)) stop("Restore the plotting R dependencies: readr is required")
+if (!requireNamespace("readr", quietly = TRUE)) {
+  stop(paste0(
+    "readr is not available in the active R library. From plotting/, run ",
+    "Rscript eval_summary.R ../csv tab/summary.tex without --vanilla or --no-init-file ",
+    "so .Rprofile activates renv. If readr is still missing, run ",
+    "Rscript -e 'renv::restore(packages = \"readr\", prompt = FALSE)' and retry."
+  ), call. = FALSE)
+}
 
 algorithms <- c("rabin_32", "buzhash_32", "gear", "ae", "ram", "pci", "mii", "seq-cdc")
 labels <- c("Rabin", "Buzhash", "Gear", "AE", "RAM", "PCI", "MII", "SeqCDC")

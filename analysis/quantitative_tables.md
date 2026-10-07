@@ -49,7 +49,7 @@ From the framework's `plotting/` directory, point the script at the existing
 experiment output directory (for example, the repository's `csv/`):
 
 ```sh
-Rscript --vanilla eval_summary.R ../csv tab/summary.tex
+Rscript eval_summary.R ../csv tab/summary.tex
 ```
 
 With no arguments it uses `csv/` relative to the working directory and writes
@@ -57,8 +57,11 @@ With no arguments it uses `csv/` relative to the working directory and writes
 result into the paper's `tables/summary.tex`, or pass that path as the second
 argument. `--help` prints usage. No intermediate summary CSV is needed.
 
-The script uses the existing `readr` dependency. Restore the plotting environment
-as described in `plotting/README.md`. It accepts plain CSV and `.csv.gz` files
+The script uses the existing `readr` dependency. Run from `plotting/` without
+`--vanilla` or `--no-init-file` so `.Rprofile` activates the project's `renv`
+library. If `readr` is still missing, restore it and its dependencies with
+`Rscript -e 'renv::restore(packages = "readr", prompt = FALSE)'`, then retry.
+It accepts plain CSV and `.csv.gz` files
 with the existing experiment schemas:
 
 | Files | Columns used | Derived measurements |
