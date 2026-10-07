@@ -10,7 +10,6 @@ library(bit64)
 library(RColorBrewer)
 library(forcats)
 library(ztable)
-library(arrow)
 library(grid)
 
 source("base_setup.R")
@@ -18,6 +17,7 @@ source("plot_setup.R")
 source("table_setup.R")
 source("tikz_setup.R")
 source("util.R")
+source("dedup_pareto.R")
 
 ######################################################################
 # DEDUPLICATION RATIO
@@ -51,94 +51,19 @@ dedup_data <- dedup_data %>%
   mutate(dedup_ratio=1-unique_ratio) %>%
   mutate(target_chunk_size = as.factor(target_chunk_size))
 
-######################################################################
-# Dedup and metadata file size comparison with gzip compression
+d <- dedup_data %>%
+  filter(algorithm %in% ALGORITHMS_TO_COMPARE) %>%
+  filter(target_chunk_size %in% POWER_OF_TWO_SIZES)
 
-dataset_sizes <- c(code=117234841088, vmb=305448681472, db=155909947392, web=49004421120)
-
-chunk_counts <- open_dataset(sprintf("%s/parquet/csd_cat", csv_dir), hive_style=TRUE, format="parquet") %>% 
-  filter(algorithm == 'rabin_32') %>%
-  group_by(dataset, target_chunk_size) %>%
-  summarise(no_of_chunks = n(), .groups = 'drop') %>% 
-  collect()
-
-df <- d %>%
-  mutate(target_chunk_size = as.integer(as.character(target_chunk_size))) %>% 
-  left_join(chunk_counts, by = c("dataset", "target_chunk_size")) %>% 
-  filter(algorithm == 'rabin_32' & target_chunk_size != 770 & target_chunk_size != 5482 ) %>%
-  mutate(
-    size = 0,
-    algorithm = as.character(target_chunk_size),
-    dedupped_size = dataset_sizes[dataset] * (1-dedup_ratio),
-    metadata_cost = no_of_chunks * 28
-    ) %>%
-  select(dataset, algorithm, size, dedupped_size, metadata_cost) %>%
-  add_row(dataset = "code", algorithm = "None", size = dataset_sizes["code"], dedupped_size = 0, metadata_cost = 0) %>%
-  add_row(dataset = "web", algorithm = "None", size = dataset_sizes["web"], dedupped_size = 0, metadata_cost = 0) %>%
-  add_row(dataset = "pdf", algorithm = "None", size = dataset_sizes["pdf"], dedupped_size = 0, metadata_cost = 0) %>%
-  add_row(dataset = "lnx", algorithm = "None", size = dataset_sizes["lnx"], dedupped_size = 0, metadata_cost = 0) %>% 
-  add_row(dataset = "code", algorithm = "GZIP", size = 2255491072, dedupped_size = 0, metadata_cost = 0) %>%
-  add_row(dataset = "web", algorithm = "GZIP", size = 7101403136, dedupped_size = 0, metadata_cost = 0) %>%
-  add_row(dataset = "pdf", algorithm = "GZIP", size = 9340710912, dedupped_size = 0, metadata_cost = 0) %>%
-  add_row(dataset = "lnx", algorithm = "GZIP", size = 11164160000, dedupped_size = 0, metadata_cost = 0)
-
-for (dataset_name in unique(d$dataset)) {
-  df_long <- df %>%
-    filter(dataset == dataset_name) %>% 
-    pivot_longer(cols = c(size, dedupped_size, metadata_cost),
-                 names_to = "measure",
-                 values_to = "value") %>%
-    mutate(algorithm = factor(algorithm, levels = c("None", "GZIP", "512", "1024", "2048", "4096", "8192")),
-           measure = factor(measure, levels = c("size", "dedupped_size", "metadata_cost"),
-                                                labels = c("Size", "Chunks", "Metadata")))
-  
-  integer_breaks_gb <- function(x) {
-    x <- x / 1e9
-    rng <- range(x, na.rm = TRUE)
-    seq(from = floor(rng[1]), to = ceiling(rng[2]), by = 3)
-  }
-  
-  p <- ggplot(df_long, aes(x = algorithm, y = value / 1e9, fill = measure, group = interaction(dataset, measure))) +  # Divide by 1e9 here for scale
-    geom_bar(data = subset(df_long, measure != "size"), aes(fill = measure), stat = "identity", position = position_stack(reverse = TRUE)) +
-    geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
-    geom_bar(stat = "identity", position = position_stack(reverse = TRUE), color = "black", fill = NA, size = 0.25) +
-    scale_fill_manual(values = c("Size" = "#7F7F7F", "Chunks" = "#DDDDDD", "Metadata" = "#BBBBBB")) +
-    labs(x = "Algorithm", y = "File Size (GB)", fill = "Measure") +
-    theme_minimal() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position="none") +
-    scale_y_continuous(
-      labels = scales::comma,  # Simplified labels
-      breaks = integer_breaks_gb(df_long$value)  # Applying function for breaks
-    )
-
-  print_plot(p, paste("post_file_size_", dataset_name, sep=""), height=1.6, width=2)
-}
-
-# Remove item from legend by reconstructing plot
-df_long <- df %>%
-  filter(dataset == dataset_name) %>% 
-  pivot_longer(cols = c(size, dedupped_size, metadata_cost),
-               names_to = "measure",
-               values_to = "value") %>%
-  mutate(algorithm = factor(algorithm, levels = c("None", "GZIP", "512", "1024", "2048", "4096", "8192")),
-         measure = factor(measure, levels = c("dedupped_size", "metadata_cost"),
-                          labels = c("Chunks", "Metadata")))
-p <- ggplot(df_long, aes(x = algorithm, y = value, fill = measure, group = interaction(dataset, measure))) +
-  geom_bar(data = subset(df_long, measure != "size"), aes(fill = measure), stat = "identity", position = position_stack(reverse = TRUE)) +
-  geom_bar(stat = "identity", position = position_stack(reverse = TRUE)) +
-  geom_bar(stat = "identity", position = position_stack(reverse = TRUE), color = "black", fill = NA, size = 0.25) +
-  scale_fill_manual(values = c("Size" = "#7F7F7F", "Chunks" = "#DDDDDD", "Metadata" = "#BBBBBB")) +
-  labs(x = "Algorithm", y = "File Size (GB)", fill = "Measure", title = NULL) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  scale_y_continuous(labels = function(x) format(round(x / 1e9, 2)))
-print_plot(get_legend_plot(p, 2), "post_file_size_legendonly", height=0.8, width=4)
+# One source for achieved means: the saved CSD result files in csv_dir.
+pareto_means <- aggregate_pareto_means(sort(Sys.glob(file.path(csv_dir,"csd_*.csv.gz"))))
+pareto_results <- run_dedup_pareto(d,pareto_means)
 
 ######################################################################
 # Dedup overview per dataset
 
-for (dataset_name in unique(dedup_data$dataset)) {
-  filtered_data <- dedup_data %>%
+for (dataset_name in unique(d$dataset)) {
+  filtered_data <- d %>%
     filter(dataset == dataset_name) %>%
     rename_datasets() %>% 
     rename_algorithms()
@@ -151,25 +76,19 @@ for (dataset_name in unique(dedup_data$dataset)) {
                size = 1.5, fill = "white") +  # Increased jitter
     ylab("Dedup. Ratio") +
     xlab("Target Chunk Size") +
-    theme(legend.position = "none") + 
+    dedup_plot_theme() +
     guides(color = guide_legend(nrow = 1), 
            linetype = guide_legend(nrow = 1), 
            shape = guide_legend(nrow = 1)) +  
     scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash", 
                                      "longdash", "twodash", "13", "44", "1343")) +
-    scale_shape_manual(values = c(21, 22, 23, 24, 25, 1, 2, 3, 4)) +
-    scale_color_manual(values = c(
-      "#1b9e77", "#d95f02", "#7570b3", "#e7298a", 
-      "#66a61e", "#e6ab02", "#a6761d", "#666666", "#1f78b4"
-    )) +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    dedup_algorithm_scales()
   
   print_plot(p, paste("dedup_overview", dataset_name, sep="_"), height=2, width=2)
 }
 
-p %>% 
-  get_legend_plot(9) %>% 
-  print_plot("dedup_overview_legendonly", height=1, width=6)
+dedup_legend_plot(p) %>%
+  print_plot("dedup_overview_legendonly", height=1, width=7)
 
 rm(p)
 gc()
