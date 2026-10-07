@@ -143,10 +143,19 @@ for (file in files$perf) {
       check_integer(iteration, "perf iteration", zero = TRUE)
       if (!is.finite(milliseconds) || milliseconds <= 0) stop(paste("Invalid task-clock for", key))
       old <- perf[[key]]
-      if (!is.null(old) && (old$file != file || iteration %in% old$iterations || size != old$size)) {
-        stop(paste("Overlapping or inconsistent performance results for", key))
+      if (!is.null(old) && size != old$size) {
+        stop(sprintf(paste0("Performance byte counts disagree for %s: %.0f bytes in %s ",
+                            "(iteration %.0f), versus %.0f bytes in %s. Select matching dataset runs."),
+                     key, size, file, iteration, old$size, old$files[1]), call. = FALSE)
       }
-      perf[[key]] <- list(size = size, file = file, iterations = c(old$iterations, iteration),
+      # Iterations restart in each repetition file. Pool individual rates across
+      # files, as eval_perf.R does, while rejecting duplicate events within a file.
+      if (!is.null(old) && any(old$files == file & old$iterations == iteration)) {
+        stop(sprintf("Duplicate task-clock for %s in %s, iteration %.0f. Select one event per iteration.",
+                     key, file, iteration), call. = FALSE)
+      }
+      perf[[key]] <- list(size = size, files = c(old$files, file),
+                         iterations = c(old$iterations, iteration),
                          throughput = c(old$throughput, size / (milliseconds / 1000) / 2^20))
     }
   })
@@ -174,7 +183,7 @@ for (i in seq_len(nrow(selected))) {
   }
   if (!is.null(perf_row)) {
     selected$median_throughput_mib_s[i] <- median(perf_row$throughput)
-    selected$perf_file[i] <- perf_row$file
+    selected$perf_file[i] <- paste(unique(perf_row$files), collapse = "; ")
   }
   sizes <- c(if (!is.null(csd_row)) csd_row$bytes,
              if (!is.null(dedup_row) && dedup_row$size > 0) dedup_row$size,

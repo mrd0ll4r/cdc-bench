@@ -90,10 +90,15 @@ Keep one coherent experiment set in the selected directory. Canonical
 `csd_code.csv[.gz]` files (likewise for web, vmb and db) take precedence over
 their `csd_code_*` split copies. Without the
 canonical file, disjoint split files are accepted. Overlapping CSD configurations
-across files, repeated dedup rows, performance configurations spread across files,
-duplicate timing iterations, malformed values, and compressed/uncompressed
-copies of the same input are rejected. All timing iterations for one configuration
-must be in one file. These legacy CSVs do not contain dataset fingerprints or
+across files, repeated dedup rows, duplicate task-clock events for one iteration
+within a performance file, malformed values, and compressed/uncompressed copies
+of the same input are rejected. Timing repetitions may span multiple files and
+iteration numbers may restart in each file. For each configuration, the median
+uses all individual per-iteration throughput values across those files, matching
+`eval_perf.R`; it is not a median of file medians. Recorded byte counts must
+still agree. The audit retains each timing sample's source file and iteration.
+Keep only the intended repetition files, since copied files with different names
+cannot be distinguished from independent runs. These legacy CSVs do not contain dataset fingerprints or
 run IDs: byte-count checks and source-file records cannot establish identical
 dataset content/order. Select matching runs using the original run records.
 
