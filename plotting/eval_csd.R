@@ -193,11 +193,14 @@ overview_lines <- c(
   "\\begingroup", "\\color{black}",
   sprintf("\\definecolor{%s}{HTML}{%s}", overview_color_names,
           substring(overview_palette, 2)),
-  "\\small\\setlength{\\tabcolsep}{5pt}",
+  "\\scriptsize\\setlength{\\tabcolsep}{1.5pt}",
+  "\\begin{adjustbox}{max width=\\columnwidth}",
   "\\begin{tabular}{lrrrrrrrrrr}", "\\toprule",
-  "& \\multicolumn{5}{c}{Mean absolute relative target error (\\%)} & \\multicolumn{5}{c}{Mean coefficient of variation} \\\\",
+  "& \\multicolumn{5}{c}{Mean target error (\\%)} & \\multicolumn{5}{c}{Mean CV} \\\\",
   "\\cmidrule(lr){2-6}\\cmidrule(lr){7-11}",
-  "Algorithm & RAND & CODE & WEB & VMB & DB & RAND & CODE & WEB & VMB & DB \\\\",
+  paste0("Alg. & ", paste(sprintf("\\rotatebox{45}{%s}",
+                                  rep(c("RAND", "CODE", "WEB", "VMB", "DB"), 2)),
+                          collapse = " & "), " \\\\"),
   "\\midrule"
 )
 for (i in seq_len(nrow(overview_table))) {
@@ -212,8 +215,8 @@ for (i in seq_len(nrow(overview_table))) {
                       paste0(paste(c(as.character(overview_table$algorithm[i]), cells),
                                    collapse = " & "), " \\\\"))
 }
-overview_lines <- c(overview_lines, "\\bottomrule", "\\end{tabular}",
-                    paste0("\\par\\smallskip\\footnotesize Colors retain the original clipped ",
+overview_lines <- c(overview_lines, "\\bottomrule", "\\end{tabular}", "\\end{adjustbox}",
+                    paste0("\\par\\smallskip\\scriptsize Colors retain the original clipped ",
                            "scores; displayed values are unclipped. Lighter = lower color score, ",
                            "darker = higher, scaled separately within each block."),
                     "\\endgroup")

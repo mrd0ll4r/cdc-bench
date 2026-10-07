@@ -30,6 +30,13 @@ background. Missing values are uncolored; a constant block uses the lightest
 shade. The generated TeX includes its own color definitions and needs the
 paper's existing `xcolor`/`colortbl` support.
 
+The overview is sized for a single paper column: `Alg.` labels the first column,
+dataset headers are rotated 45 degrees, and the body uses `scriptsize` with
+1.5 pt cell padding. Short group headings identify mean target error (%) and
+mean CV. An `adjustbox` maximum width of `columnwidth` prevents overflow without
+enlarging tables that already fit; the paper already loads `adjustbox` and
+`graphicx`. Use a normal `table` float rather than `table*`.
+
 Each aggregate requires all five settings. Missing/invalid means or SDs produce
 an unavailable aggregate, shown as a dash with `REBUTTAL-DATA-PENDING`; an absent
 SD does not suppress an otherwise complete target-error aggregate. All eight
