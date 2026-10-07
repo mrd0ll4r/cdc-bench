@@ -43,55 +43,73 @@ SD does not suppress an otherwise complete target-error aggregate. All eight
 CDC algorithms and all five datasets are retained. The `.audit.rds` file beside
 the table contains the measured statistics, unrounded aggregates and color scores.
 
-## Table X: R summary evaluation
+## Table X: raw experiment summary
 
-From `plotting/`, run:
+From the framework's `plotting/` directory, point the script at the existing
+experiment output directory (for example, the repository's `csv/`):
 
 ```sh
-Rscript --vanilla eval_summary.R /path/to/run-summaries.csv tab/summary.tex
+Rscript --vanilla eval_summary.R ../csv tab/summary.tex
 ```
 
-Copy the result into the paper's `tables/summary.tex`. Add `--allow-missing` only
-for review placeholders; add `--include-fsc` to display a complete FSC reference
-outside CDC rankings. This script uses base R and requires no extra packages.
+With no arguments it uses `csv/` relative to the working directory and writes
+`tab/summary.tex`. The output directory is created automatically. Copy the
+result into the paper's `tables/summary.tex`, or pass that path as the second
+argument. `--help` prints usage. No intermediate summary CSV is needed.
 
-One CSV row represents one selected, provenance-checked run summary per
-`algorithm,dataset,target_chunk_size`. Required columns are:
+The script uses the existing `readr` dependency. Restore the plotting environment
+as described in `plotting/README.md`. It accepts plain CSV and `.csv.gz` files
+with the existing experiment schemas:
 
-```csv
-algorithm,dataset,target_chunk_size,run_id,dataset_fingerprint,chunk_population,mean_chunk_size,sd_chunk_size,dataset_size,chunk_count,unique_chunks_size_sum,median_throughput_mib_s
-```
+| Files | Columns used | Derived measurements |
+| --- | --- | --- |
+| `csd_*.csv[.gz]` | `algorithm,dataset,target_chunk_size,chunk_size` | Count and sum of all emitted chunks, mean, sample SD (N-1) |
+| `dedup_*.csv[.gz]` | `algorithm,dataset,dataset_size,target_chunk_size,unique_chunks_size_sum` | Unique chunk bytes |
+| `perf_*.csv[.gz]` | `algorithm,dataset,dataset_size,target_chunk_size,iteration,event,value` | Per-iteration MiB/s from `task-clock` in milliseconds; then median throughput |
 
-Algorithms are `rabin_32,buzhash_32,gear,ae,ram,pci,mii,seq-cdc`; datasets are
-`RAND,CODE,WEB,VMB,DB`. Configured targets are 512, 1024, 2048, 4096, 8192 bytes.
-Table X requires all eight algorithms at target 2048 across CODE/WEB/VMB/DB.
-Other valid target/dataset rows may be supplied but are not aggregated.
+Only target 2048 for `rabin_32,buzhash_32,gear,ae,ram,pci,mii,seq-cdc` and
+CODE/WEB/VMB/DB is aggregated. Dataset names are case-insensitive. Other
+algorithms, targets, datasets and performance events are ignored. The checked-in
+`scripts/speed.sh` currently records RAND only: those timings cannot populate
+Table X. Supply the existing timing outputs for the four realistic datasets;
+the script does not substitute RAND timings or start experiments.
 
-Supply unrounded mean and sample SD (denominator N-1) in bytes, integer input
-bytes/chunk count/unique bytes, and the median throughput in MiB/s (2^20 bytes).
-The population must be `all-emitted`, including terminal and duplicate chunks.
-Run IDs identify the selected run bundle and timing repetitions. Fingerprints
-must identify identical dataset content/order across configurations. Authors
-must verify that measurements belong to those runs and the same population.
-The script rejects duplicate keys/headers, invalid or inconsistent accounting,
-missing provenance, and differing dataset fingerprints or input byte counts.
-Mean must agree with input bytes / emitted chunks within relative 1e-6.
+CSD files are streamed in batches of one million rows and combined with a
+stable pooled-variance calculation, rather than loading the entire population
+into one R vector. Terminal chunks and every duplicate occurrence count toward
+N and input bytes. The sum of emitted chunk sizes supplies input bytes S.
+Positive byte counts in dedup/performance outputs must match S, and input sizes
+must agree across algorithms for each dataset. A zero dedup `dataset_size`
+(the historical VMB symlink issue) is ignored in favor of measured CSD bytes;
+no dataset size is hardcoded. Unique bytes cannot exceed input bytes.
 
-Empty fields, `NA`, and `N/A` represent missing values. Zero is a valid measured
-SD or unique-byte count. Missing values fail by default. In review mode each
-metric requires all four datasets, and ranking is withheld for incomplete CDC
-metrics. Available independent metrics may still be shown.
+Keep one coherent experiment set in the selected directory. Canonical
+`csd_code.csv[.gz]` files (likewise for web, vmb and db) take precedence over
+their `csd_code_*` split copies. Without the
+canonical file, disjoint split files are accepted. Overlapping CSD configurations
+across files, repeated dedup rows, performance configurations spread across files,
+duplicate timing iterations, malformed values, and compressed/uncompressed
+copies of the same input are rejected. All timing iterations for one configuration
+must be in one file. These legacy CSVs do not contain dataset fingerprints or
+run IDs: byte-count checks and source-file records cannot establish identical
+dataset content/order. Select matching runs using the original run records.
 
-Table X reports the minimum of `1 - (unique_bytes + 64*chunk_count)/input_bytes`,
+Add `--allow-missing` only for review placeholders: each reported metric still
+requires all four datasets, and CDC ranking is withheld for incomplete metrics.
+Independent complete metrics remain available. Add `--include-fsc` to include a
+complete FSC reference outside the eight-algorithm CDC rankings. Missing inputs
+fail by default and the error names the incomplete configurations.
+
+Table X reports minimum `1 - (unique_bytes + 64*chunk_count)/input_bytes`,
 minimum median throughput, maximum absolute relative target error, and maximum
 CV across CODE/WEB/VMB/DB. The 64-byte allowance per emitted chunk is illustrative;
 negative savings are retained. Superscripts identify all datasets attaining an
 extremum. Best and second distinct CDC values are bold and underlined, with ties
 retained; FSC does not affect rankings. Calculations use R double precision and
-round only for the two-decimal display. Ties use equality of unrounded values,
-so apparent display ties may have different formatting. Integer byte/count
-inputs above 2^53-1 are rejected. The accompanying `.audit.rds` preserves input
-rows, provenance, unrounded metrics, and extremal datasets.
+round only for the two-decimal display. Ties use equality of unrounded values.
+The accompanying `.audit.rds` records source-file paths, sizes and modification
+times, derived measurements per configuration, timing samples, unrounded summary
+metrics and extremal datasets. No manually supplied provenance columns are needed.
 
 ## Data still required
 

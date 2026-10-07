@@ -26,6 +26,9 @@ They roughly correspond to the sections of the paper:
 
 `eval_csd.R` writes the numerical CSD overview (`tab/csd_overview.tex`) directly
 from the measured mean/SD data: equal-weight relative target error and CV over
-five targets, without clipping. `eval_summary.R` writes the worst-case summary
-at 2 KiB from a provenance-checked run-summary CSV. See
+five targets, without clipping. `eval_summary.R` reads the existing CSD,
+deduplication and performance CSVs directly and writes the worst-case summary
+at 2 KiB. From this directory, run
+`Rscript --vanilla eval_summary.R ../csv tab/summary.tex` (replace `../csv` with
+the experiment output directory). No intermediate summary CSV is needed. See
 [quantitative table definitions and input requirements](../analysis/quantitative_tables.md).

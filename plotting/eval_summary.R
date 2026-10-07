@@ -1,15 +1,23 @@
-# Table X from one provenance-checked run summary per configuration.
-# Run from plotting/: Rscript --vanilla eval_summary.R INPUT.csv tab/summary.tex
+# Table X directly from the existing experiment CSVs (plain or gzip).
+# From plotting/: Rscript --vanilla eval_summary.R ../csv tab/summary.tex
+# Defaults: csv/ and tab/summary.tex. Requires the existing readr dependency.
 # Optional: --allow-missing (review only), --include-fsc (unranked reference).
-# See ../analysis/quantitative_tables.md for the input contract.
 
 args <- commandArgs(trailingOnly = TRUE)
+usage <- "Usage: Rscript eval_summary.R [CSV_DIR [OUTPUT.tex]] [--allow-missing] [--include-fsc]"
+if ("--help" %in% args) {
+  cat(usage, "\nReads csd_*.csv[.gz], dedup_*.csv[.gz], and perf_*.csv[.gz].\n")
+  quit(status = 0)
+}
 allow_missing <- "--allow-missing" %in% args
 include_fsc <- "--include-fsc" %in% args
 paths <- args[!args %in% c("--allow-missing", "--include-fsc")]
-if (length(paths) != 2L) {
-  stop("Usage: Rscript eval_summary.R INPUT.csv OUTPUT.tex [--allow-missing] [--include-fsc]")
-}
+if (length(paths) > 2L || any(startsWith(paths, "--"))) stop(usage)
+csv_dir <- if (length(paths)) paths[1] else "csv"
+output_path <- if (length(paths) > 1L) paths[2] else "tab/summary.tex"
+if (!dir.exists(csv_dir)) stop(paste("Experiment directory does not exist:", csv_dir))
+if (!requireNamespace("readr", quietly = TRUE)) stop("Restore the plotting R dependencies: readr is required")
+
 algorithms <- c("rabin_32", "buzhash_32", "gear", "ae", "ram", "pci", "mii", "seq-cdc")
 labels <- c("Rabin", "Buzhash", "Gear", "AE", "RAM", "PCI", "MII", "SeqCDC")
 if (include_fsc) {
@@ -19,58 +27,163 @@ if (include_fsc) {
 datasets <- c("CODE", "WEB", "VMB", "DB")
 codes <- c("C", "W", "V", "D")
 keys <- c("algorithm", "dataset", "target_chunk_size")
-provenance <- c("run_id", "dataset_fingerprint", "chunk_population")
 fields <- c("mean_chunk_size", "sd_chunk_size", "dataset_size", "chunk_count",
             "unique_chunks_size_sum", "median_throughput_mib_s")
-rows <- read.csv(paths[1], colClasses = "character", check.names = FALSE,
-                 na.strings = c("", "NA", "N/A"), strip.white = TRUE,
-                 fill = FALSE, row.names = NULL)
-if (anyDuplicated(names(rows)) || !all(c(keys, provenance, fields) %in% names(rows))) {
-  stop("Input requires unique column names and all key, provenance and measurement columns")
-}
-rows[keys] <- lapply(rows[keys], trimws)
-if (anyNA(rows[keys]) || any(!rows$algorithm %in% c(algorithms, "fsc")) ||
-    any(!rows$dataset %in% c("RAND", datasets)) ||
-    any(!rows$target_chunk_size %in% c("512", "1024", "2048", "4096", "8192"))) {
-  stop("Unknown algorithm, dataset, or configured target")
-}
-if (anyDuplicated(rows[keys])) stop("Duplicate configuration")
-for (field in fields) {
-  value <- suppressWarnings(as.numeric(rows[[field]]))
-  supplied <- !is.na(rows[[field]])
-  zero_allowed <- field %in% c("sd_chunk_size", "unique_chunks_size_sum")
-  if (any(supplied & (!is.finite(value) | value < 0 | (!zero_allowed & value == 0)))) {
-    stop(paste("Invalid measured value:", field))
+
+input_files <- function(prefix) {
+  files <- sort(list.files(csv_dir, paste0("^", prefix, "_.*\\.csv(\\.gz)?$"), full.names = TRUE))
+  # The experiment script leaves per-algorithm copies next to each original.
+  # Prefer the full dataset file; otherwise accept splits, checking overlap below.
+  if (prefix == "csd") {
+    files <- files[!grepl("^csd_random[_.]", basename(files))]
+    for (ds in c("random", tolower(datasets))) {
+      stem <- paste0("csd_", ds)
+      if (any(sub("\\.csv(\\.gz)?$", "", basename(files)) == stem)) {
+        files <- files[!startsWith(basename(files), paste0(stem, "_"))]
+      }
+    }
   }
-  if (field %in% c("dataset_size", "chunk_count", "unique_chunks_size_sum") &&
-      any(supplied & (value != trunc(value) | value > 2^53 - 1))) {
-    stop(paste("Expected exact integer bytes/count within R's numeric range:", field))
+  if (anyDuplicated(sub("\\.gz$", "", files))) {
+    stop(paste("Both compressed and uncompressed copies found for", prefix))
   }
-  rows[[field]] <- value
+  files
 }
-measured <- rowSums(!is.na(rows[fields])) > 0
-if (any(measured & (is.na(rows$chunk_population) | rows$chunk_population != "all-emitted")) ||
-    any(vapply(rows[provenance], function(x) any(measured & (is.na(x) | trimws(x) == "")), logical(1)))) {
-  stop("Measured rows require a run ID, dataset fingerprint and all-emitted population")
+files <- lapply(c("csd", "dedup", "perf"), input_files)
+names(files) <- c("csd", "dedup", "perf")
+
+# Keep one selected record per algorithm/dataset, matching Table X's 2 KiB domain.
+select_domain <- function(x) {
+  x$dataset <- toupper(x$dataset)
+  x[x$algorithm %in% algorithms & x$dataset %in% datasets &
+      !is.na(x$target_chunk_size) & x$target_chunk_size == 2048, , drop = FALSE]
 }
-if (any(rows$unique_chunks_size_sum > rows$dataset_size, na.rm = TRUE) ||
-    any(rows$chunk_count > rows$dataset_size, na.rm = TRUE) ||
-    any(abs(rows$mean_chunk_size - rows$dataset_size / rows$chunk_count) >
-        1e-6 * rows$dataset_size / rows$chunk_count, na.rm = TRUE)) {
-  stop("Inconsistent all-emitted byte/count accounting")
-}
-for (ds in unique(rows$dataset[measured])) {
-  selected <- rows[measured & rows$dataset == ds, ]
-  if (length(unique(selected$dataset_fingerprint)) != 1L ||
-      length(unique(na.omit(selected$dataset_size))) > 1L) {
-    stop(paste("Inconsistent dataset fingerprint or byte count:", ds))
+key_of <- function(x) paste(x$algorithm, x$dataset, sep = ":")
+check_integer <- function(x, field, zero = FALSE) {
+  minimum <- if (zero) 0 else 1
+  if (any(!is.finite(x) | x < minimum | x != trunc(x) | x > 2^53 - 1)) {
+    stop(paste("Invalid integer", field))
   }
 }
-grid <- expand.grid(algorithm = algorithms, dataset = datasets,
-                    target_chunk_size = "2048", stringsAsFactors = FALSE)
-selected <- merge(grid, rows, by = keys, all.x = TRUE, sort = FALSE)
-if (!allow_missing && anyNA(selected[fields])) {
-  stop("Incomplete evaluation domain; use --allow-missing only for review placeholders")
+read_input <- function(file, extra, callback) {
+  columns <- c(keys, extra)
+  header <- names(readr::read_csv(file, n_max = 0, name_repair = "minimal",
+                                 col_types = readr::cols(.default = readr::col_character()),
+                                 show_col_types = FALSE, progress = FALSE))
+  if (anyDuplicated(header) || !all(columns %in% header)) {
+    stop(paste("Missing or duplicate columns in", file, "(required:", paste(columns, collapse = ", "), ")"))
+  }
+  types <- readr::cols(.default = readr::col_skip())
+  for (column in columns) types$cols[[column]] <- readr::col_character()
+  # Bounded memory even for CSD files larger than an R vector. Parse as text so
+  # unsupported perf events do not invalidate the task-clock measurements.
+  readr::read_csv_chunked(file, readr::SideEffectChunkCallback$new(function(x, pos) {
+    readr::stop_for_problems(x)
+    callback(select_domain(x))
+  }), chunk_size = 1000000, col_types = types, progress = FALSE, show_col_types = FALSE)
+}
+csd <- new.env(parent = emptyenv())
+dedup <- new.env(parent = emptyenv())
+perf <- new.env(parent = emptyenv())
+for (file in files$csd) {
+  message("Reading CSD: ", file)
+  read_input(file, "chunk_size", function(x) {
+    for (group in split(x, key_of(x))) {
+      key <- key_of(group)[1]
+      chunks <- suppressWarnings(as.numeric(group$chunk_size))
+      check_integer(chunks, "chunk_size")
+      n <- as.double(length(chunks))
+      mu <- mean(chunks)
+      m2 <- sum((chunks - mu)^2)
+      bytes <- sum(chunks)
+      old <- csd[[key]]
+      if (!is.null(old)) {
+        if (old$file != file) stop(paste("Overlapping CSD inputs for", key, "in", old$file, "and", file))
+        # Combine within-file batches using the pooled-variance identity.
+        delta <- mu - old$mean
+        m2 <- old$m2 + m2 + delta^2 * old$n * n / (old$n + n)
+        mu <- old$mean + delta * n / (old$n + n)
+        n <- old$n + n
+        bytes <- old$bytes + bytes
+      }
+      check_integer(bytes, "CSD byte total")
+      csd[[key]] <- list(n = n, mean = mu, m2 = m2, bytes = bytes, file = file)
+    }
+  })
+}
+for (file in files$dedup) {
+  read_input(file, c("dataset_size", "unique_chunks_size_sum"), function(x) {
+    for (i in seq_len(nrow(x))) {
+      key <- key_of(x[i, ])[1]
+      if (!is.null(dedup[[key]])) stop(paste("Duplicate dedup result for", key))
+      size <- suppressWarnings(as.numeric(x$dataset_size[i]))
+      unique_bytes <- suppressWarnings(as.numeric(x$unique_chunks_size_sum[i]))
+      check_integer(size, "dedup dataset_size", zero = TRUE)
+      check_integer(unique_bytes, "unique_chunks_size_sum", zero = TRUE)
+      dedup[[key]] <- list(size = size, unique = unique_bytes, file = file)
+    }
+  })
+}
+for (file in files$perf) {
+  read_input(file, c("dataset_size", "iteration", "event", "value"), function(x) {
+    x <- x[!is.na(x$event) & x$event == "task-clock", , drop = FALSE]
+    for (i in seq_len(nrow(x))) {
+      key <- key_of(x[i, ])[1]
+      size <- suppressWarnings(as.numeric(x$dataset_size[i]))
+      iteration <- suppressWarnings(as.numeric(x$iteration[i]))
+      milliseconds <- suppressWarnings(as.numeric(x$value[i]))
+      check_integer(size, "perf dataset_size")
+      check_integer(iteration, "perf iteration", zero = TRUE)
+      if (!is.finite(milliseconds) || milliseconds <= 0) stop(paste("Invalid task-clock for", key))
+      old <- perf[[key]]
+      if (!is.null(old) && (old$file != file || iteration %in% old$iterations || size != old$size)) {
+        stop(paste("Overlapping or inconsistent performance results for", key))
+      }
+      perf[[key]] <- list(size = size, file = file, iterations = c(old$iterations, iteration),
+                         throughput = c(old$throughput, size / (milliseconds / 1000) / 2^20))
+    }
+  })
+}
+
+selected <- expand.grid(algorithm = algorithms, dataset = datasets,
+                        target_chunk_size = 2048, stringsAsFactors = FALSE)
+for (field in fields) selected[[field]] <- NA_real_
+for (field in c("csd_file", "dedup_file", "perf_file")) selected[[field]] <- NA_character_
+for (i in seq_len(nrow(selected))) {
+  key <- key_of(selected[i, ])[1]
+  csd_row <- csd[[key]]
+  dedup_row <- dedup[[key]]
+  perf_row <- perf[[key]]
+  if (!is.null(csd_row)) {
+    selected$mean_chunk_size[i] <- csd_row$mean
+    selected$sd_chunk_size[i] <- if (csd_row$n > 1) sqrt(csd_row$m2 / (csd_row$n - 1)) else NA_real_
+    selected$dataset_size[i] <- csd_row$bytes
+    selected$chunk_count[i] <- csd_row$n
+    selected$csd_file[i] <- csd_row$file
+  }
+  if (!is.null(dedup_row)) {
+    selected$unique_chunks_size_sum[i] <- dedup_row$unique
+    selected$dedup_file[i] <- dedup_row$file
+  }
+  if (!is.null(perf_row)) {
+    selected$median_throughput_mib_s[i] <- median(perf_row$throughput)
+    selected$perf_file[i] <- perf_row$file
+  }
+  sizes <- c(if (!is.null(csd_row)) csd_row$bytes,
+             if (!is.null(dedup_row) && dedup_row$size > 0) dedup_row$size,
+             if (!is.null(perf_row)) perf_row$size)
+  if (length(unique(sizes)) > 1L) stop(paste("CSD/dedup/perf input byte counts disagree for", key))
+  if (!is.null(dedup_row) && length(sizes) && dedup_row$unique > sizes[1]) stop(paste("Unique bytes exceed input bytes for", key))
+}
+for (ds in datasets) {
+  sizes <- c(selected$dataset_size[selected$dataset == ds],
+             vapply(as.list(perf)[paste(algorithms, ds, sep = ":")],
+                    function(p) if (is.null(p)) NA_real_ else p$size, numeric(1)))
+  if (length(unique(na.omit(sizes))) > 1L) stop(paste("Input byte counts differ across algorithms for", ds))
+}
+incomplete <- !complete.cases(selected[fields])
+if (!allow_missing && any(incomplete)) {
+  stop(paste("Missing raw measurements for", paste(key_of(selected[incomplete, ]), collapse = ", "),
+             "at 2048 B. Supply the matching experiment outputs, or use --allow-missing for review placeholders."))
 }
 selected$savings <- 1 - (selected$unique_chunks_size_sum + 64 * selected$chunk_count) / selected$dataset_size
 selected$error <- abs(selected$mean_chunk_size / 2048 - 1)
@@ -125,6 +238,11 @@ if (anyNA(values)) {
   lines <- c(lines, paste0("\\par\\smallskip\\footnotesize\\textbf{REBUTTAL-DATA-PENDING:} ",
                           "Dashes denote unavailable worst-case values, not zero. Each value requires all four realistic datasets."))
 }
-writeLines(lines, paths[2])
-saveRDS(list(input = normalizePath(paths[1]), source_rows = rows, values = values, extrema = extrema),
-        sub("\\.tex$", "", paths[2]) |> paste0(".audit.rds"))
+dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
+writeLines(lines, output_path)
+source_files <- normalizePath(as.character(unlist(files)), mustWork = TRUE)
+saveRDS(list(input_directory = normalizePath(csv_dir),
+             source_files = file.info(source_files)[, c("size", "mtime"), drop = FALSE],
+             configurations = selected, performance_samples = as.list(perf),
+             values = values, extrema = extrema),
+        paste0(sub("\\.tex$", "", output_path), ".audit.rds"))
