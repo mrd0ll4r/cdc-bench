@@ -112,7 +112,7 @@ def summary(rows, algorithms=ALGORITHMS):
             r = rows.get((a, ds, 2048), {})
             mean, sd = r.get('mean_chunk_size'), r.get('sd_chunk_size')
             size, count, unique = (r.get(k) for k in ('dataset_size', 'chunk_count', 'unique_chunks_size_sum'))
-            vals = (1-(unique+28*count)/size if None not in (size, count, unique) else None,
+            vals = (1-(unique+64*count)/size if None not in (size, count, unique) else None,
                     r.get('median_throughput_mib_s'), abs(mean/2048-1) if mean is not None else None,
                     sd/mean if None not in (sd, mean) else None)
             for column, value in zip(metrics, vals):
@@ -150,7 +150,7 @@ def render_x(data, algorithms):
         # Do not rank a partial domain. FSC is a separate reference, never changes CDC ranking.
         ranks.append(sorted(set(values), reverse=i < 2)[:2] if None not in values else [])
     lines = [r'\begingroup', r'\scriptsize\setlength{\tabcolsep}{3pt}', r'\begin{tabular}{lrrrr}', r'\toprule',
-             r'Algorithm & Min. $D_{28}$ & Min. throughput & Max. error & Max. CV \\',
+             r'Algorithm & Min. $D_{64}$ & Min. throughput & Max. error & Max. CV \\',
              r'& (\%) $\uparrow$ & (MiB/s) $\uparrow$ & (\%) $\downarrow$ & $\downarrow$ \\', r'\midrule']
     for a in algorithms:
         cells = []

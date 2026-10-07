@@ -44,9 +44,9 @@ class QuantitativeTablesTest(unittest.TestCase):
         for ds in q.REAL:
             rows['ram', ds, 2048]['unique_chunks_size_sum'] = D(819200)
         result = q.summary(rows)
-        self.assertEqual(result['ram'][0], (D('-0.013671875'), q.REAL))
+        self.assertEqual(result['ram'][0], (D('-0.03125'), q.REAL))
         self.assertEqual(result['ae'][1], (D(100), q.REAL))
-        self.assertIn('-1.37', q.render_x(result, q.ALGORITHMS))
+        self.assertIn('-3.12', q.render_x(result, q.ALGORITHMS))
         self.assertIn('C,W,V,D', q.render_x(result, q.ALGORITHMS))
 
     def test_best_second_and_direction_with_ties(self):

@@ -54,9 +54,9 @@ targets, separately for every algorithm/dataset. Errors print as percentages;
 CV is dimensionless. No clipping or weighting by target size/chunk count occurs.
 
 Table X uses configured target 2048 and reports the minimum of
-`1 - (unique_bytes + 28*total_chunk_count)/input_bytes`, minimum median throughput,
+`1 - (unique_bytes + 64*total_chunk_count)/input_bytes`, minimum median throughput,
 maximum absolute relative target error, and maximum CV across CODE/WEB/VMB/DB.
-28 bytes per emitted chunk is an illustrative cost assumption, not a measured
+64 bytes per emitted chunk is an illustrative cost assumption, not a measured
 storage-system cost. Negative savings are retained. Superscripts identify every
 dataset attaining an extremum. Values are formatted to two decimals only at
 rendering; calculations and exact ties use decimal arithmetic. Best and second
