@@ -29,8 +29,13 @@ from the measured mean/SD data: equal-weight relative target error and CV over
 five targets, without clipping. `eval_summary.R` reads the existing CSD,
 deduplication and performance CSVs directly and writes the worst-case summary
 at 2 KiB. From this directory, run
-`Rscript eval_summary.R ../csv tab/summary.tex` (replace `../csv` with
-the experiment output directory). Keep startup profiles enabled: `--vanilla`
+`Rscript eval_summary.R` to use `csv/`, like the other evaluation scripts.
+Pass a different input directory explicitly only if the experiment files are
+stored elsewhere. If CSD/dedup files are in `csv/` and timings in `../csv/`, run
+`Rscript eval_summary.R --perf-dir ../csv`. The script reports both resolved
+directories and input counts. Timings must cover CODE, WEB, VMB and DB;
+`--allow-missing` produces a review table with dashes for incomplete metrics.
+Keep startup profiles enabled: `--vanilla`
 skips the `.Rprofile` that activates this project's `renv` library. If `readr`
 is missing after activation, run
 `Rscript -e 'renv::restore(packages = "readr", prompt = FALSE)'` from this directory.

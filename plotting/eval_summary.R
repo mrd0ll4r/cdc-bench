@@ -1,26 +1,38 @@
 # Table X directly from the existing experiment CSVs (plain or gzip).
-# From plotting/: Rscript eval_summary.R ../csv tab/summary.tex
+# From plotting/: Rscript eval_summary.R
 # Keep startup profiles enabled so .Rprofile activates the renv library.
 # Defaults: csv/ and tab/summary.tex. Requires the existing readr dependency.
 # Optional: --allow-missing (review only), --include-fsc (unranked reference).
 
 args <- commandArgs(trailingOnly = TRUE)
-usage <- "Usage: Rscript eval_summary.R [CSV_DIR [OUTPUT.tex]] [--allow-missing] [--include-fsc]"
+usage <- "Usage: Rscript eval_summary.R [CSV_DIR [OUTPUT.tex]] [--perf-dir DIR] [--allow-missing] [--include-fsc]"
 if ("--help" %in% args) {
-  cat(usage, "\nReads csd_*.csv[.gz], dedup_*.csv[.gz], and perf_*.csv[.gz].\n")
+  cat(usage, "\nReads csd_*.csv[.gz], dedup_*.csv[.gz], and perf_*.csv[.gz].\n",
+      "Defaults: CSV_DIR=csv, OUTPUT.tex=tab/summary.tex; performance files use CSV_DIR unless --perf-dir is supplied.\n")
   quit(status = 0)
 }
 allow_missing <- "--allow-missing" %in% args
 include_fsc <- "--include-fsc" %in% args
-paths <- args[!args %in% c("--allow-missing", "--include-fsc")]
+paths <- args
+perf_option <- which(paths == "--perf-dir")
+perf_dir <- NULL
+if (length(perf_option)) {
+  if (length(perf_option) != 1L || perf_option == length(paths) ||
+      startsWith(paths[perf_option + 1L], "--")) stop(usage)
+  perf_dir <- paths[perf_option + 1L]
+  paths <- paths[-c(perf_option, perf_option + 1L)]
+}
+paths <- paths[!paths %in% c("--allow-missing", "--include-fsc")]
 if (length(paths) > 2L || any(startsWith(paths, "--"))) stop(usage)
 csv_dir <- if (length(paths)) paths[1] else "csv"
+if (is.null(perf_dir)) perf_dir <- csv_dir
 output_path <- if (length(paths) > 1L) paths[2] else "tab/summary.tex"
 if (!dir.exists(csv_dir)) stop(paste("Experiment directory does not exist:", csv_dir))
+if (!dir.exists(perf_dir)) stop(paste("Performance directory does not exist:", perf_dir))
 if (!requireNamespace("readr", quietly = TRUE)) {
   stop(paste0(
     "readr is not available in the active R library. From plotting/, run ",
-    "Rscript eval_summary.R ../csv tab/summary.tex without --vanilla or --no-init-file ",
+    "Rscript eval_summary.R without --vanilla or --no-init-file ",
     "so .Rprofile activates renv. If readr is still missing, run ",
     "Rscript -e 'renv::restore(packages = \"readr\", prompt = FALSE)' and retry."
   ), call. = FALSE)
@@ -39,7 +51,8 @@ fields <- c("mean_chunk_size", "sd_chunk_size", "dataset_size", "chunk_count",
             "unique_chunks_size_sum", "median_throughput_mib_s")
 
 input_files <- function(prefix) {
-  files <- sort(list.files(csv_dir, paste0("^", prefix, "_.*\\.csv(\\.gz)?$"), full.names = TRUE))
+  directory <- if (prefix == "perf") perf_dir else csv_dir
+  files <- sort(list.files(directory, paste0("^", prefix, "_.*\\.csv(\\.gz)?$"), full.names = TRUE))
   # The experiment script leaves per-algorithm copies next to each original.
   # Prefer the full dataset file; otherwise accept splits, checking overlap below.
   if (prefix == "csd") {
@@ -58,6 +71,10 @@ input_files <- function(prefix) {
 }
 files <- lapply(c("csd", "dedup", "perf"), input_files)
 names(files) <- c("csd", "dedup", "perf")
+message("CSD/dedup directory: ", normalizePath(csv_dir))
+message("Performance directory: ", normalizePath(perf_dir))
+message(sprintf("Selected raw CSV files: %d CSD, %d dedup, %d performance",
+                length(files$csd), length(files$dedup), length(files$perf)))
 
 # Keep one selected record per algorithm/dataset, matching Table X's 2 KiB domain.
 select_domain <- function(x) {
@@ -199,8 +216,17 @@ for (ds in datasets) {
 }
 incomplete <- !complete.cases(selected[fields])
 if (!allow_missing && any(incomplete)) {
-  stop(paste("Missing raw measurements for", paste(key_of(selected[incomplete, ]), collapse = ", "),
-             "at 2048 B. Supply the matching experiment outputs, or use --allow-missing for review placeholders."))
+  missing_fields <- apply(is.na(selected[fields]), 1, function(missing) paste(fields[missing], collapse = ", "))
+  missing_groups <- split(key_of(selected[incomplete, ]), missing_fields[incomplete])
+  details <- vapply(names(missing_groups), function(missing) {
+    paste0("  Missing ", missing, ":\n    ", paste(missing_groups[[missing]], collapse = ", "))
+  }, character(1))
+  stop(paste0(
+    "Incomplete raw measurements at 2048 B:\n", paste(details, collapse = "\n"),
+    "\nMean, SD, input bytes and chunk count come from CSD; unique bytes from dedup; ",
+    "throughput from performance task-clock rows. Check the selected directories and filenames above. ",
+    "Use --allow-missing only for review placeholders."
+  ), call. = FALSE)
 }
 selected$savings <- 1 - (selected$unique_chunks_size_sum + 64 * selected$chunk_count) / selected$dataset_size
 selected$error <- abs(selected$mean_chunk_size / 2048 - 1)
@@ -259,6 +285,7 @@ dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
 writeLines(lines, output_path)
 source_files <- normalizePath(as.character(unlist(files)), mustWork = TRUE)
 saveRDS(list(input_directory = normalizePath(csv_dir),
+             performance_directory = normalizePath(perf_dir),
              source_files = file.info(source_files)[, c("size", "mtime"), drop = FALSE],
              configurations = selected, performance_samples = as.list(perf),
              values = values, extrema = extrema),

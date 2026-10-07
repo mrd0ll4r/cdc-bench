@@ -45,15 +45,30 @@ the table contains the measured statistics, unrounded aggregates and color score
 
 ## Table X: raw experiment summary
 
-From the framework's `plotting/` directory, point the script at the existing
-experiment output directory (for example, the repository's `csv/`):
+From the framework's `plotting/` directory, use the same `csv/` input directory
+as the other evaluation scripts:
 
 ```sh
-Rscript eval_summary.R ../csv tab/summary.tex
+Rscript eval_summary.R
 ```
 
-With no arguments it uses `csv/` relative to the working directory and writes
-`tab/summary.tex`. The output directory is created automatically. Copy the
+This uses `csv/` relative to the working directory and writes `tab/summary.tex`.
+If your raw files live elsewhere, explicitly pass their directory and output:
+`Rscript eval_summary.R ../csv tab/summary.tex` is appropriate only when the
+complete experiment outputs live in the parent directory's `csv/`.
+If CSD/dedup files are in `plotting/csv/` and timings are in the parent `csv/`, use:
+
+```sh
+Rscript eval_summary.R --perf-dir ../csv
+```
+
+`--perf-dir DIR` selects a separate directory for performance CSVs only; it
+defaults to `CSV_DIR`. Files need not be moved or copied. DB and RAND timings
+alone cannot supply the four-dataset throughput metric. With `--allow-missing`,
+that metric remains a dash while complete CSD/dedup metrics are still reported.
+The script prints the resolved input directories and selected file counts, and
+missing-data errors identify the absent measurements rather than only keys.
+The output directory is created automatically. Copy the
 result into the paper's `tables/summary.tex`, or pass that path as the second
 argument. `--help` prints usage. No intermediate summary CSV is needed.
 
@@ -86,7 +101,7 @@ must agree across algorithms for each dataset. A zero dedup `dataset_size`
 (the historical VMB symlink issue) is ignored in favor of measured CSD bytes;
 no dataset size is hardcoded. Unique bytes cannot exceed input bytes.
 
-Keep one coherent experiment set in the selected directory. Canonical
+Keep one coherent experiment set in the selected directories. Canonical
 `csd_code.csv[.gz]` files (likewise for web, vmb and db) take precedence over
 their `csd_code_*` split copies. Without the
 canonical file, disjoint split files are accepted. Overlapping CSD configurations
