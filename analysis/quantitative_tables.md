@@ -17,6 +17,14 @@ over targets 512, 1024, 2048, 4096, 8192 bytes. Error is displayed as a percenta
 CV is dimensionless. Neither metric is clipped or weighted by target size or
 chunk count. The detailed mean/SD table keeps its existing color encoding.
 
+The overview uses nine Reds shades, linearly scaled from the minimum to the
+maximum unrounded value separately across each metric's entire block. Lower
+values are lighter. Large outliers therefore make most other cells pale.
+Each cell uses black or white text, whichever has higher contrast against its
+background. Missing values are uncolored; a constant block uses the lightest
+shade. The generated TeX includes its own color definitions and needs the
+paper's existing `xcolor`/`colortbl` support.
+
 Each aggregate requires all five settings. Missing/invalid means or SDs produce
 an unavailable aggregate, shown as a dash with `REBUTTAL-DATA-PENDING`; an absent
 SD does not suppress an otherwise complete target-error aggregate. All eight

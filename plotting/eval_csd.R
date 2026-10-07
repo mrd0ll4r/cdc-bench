@@ -149,8 +149,39 @@ overview_table <- overview %>%
          all_of(paste0("cv_", overview_datasets))) %>%
   rename_algorithms()
 
+overview_palette <- RColorBrewer::brewer.pal(9, "Reds")
+overview_color_names <- paste0("csdoverview", seq_along(overview_palette))
+overview_values <- as.matrix(overview_table[, -1])
+overview_shades <- matrix(NA_integer_, nrow(overview_values), ncol(overview_values))
+limits <- c(NA_real_, NA_real_)
+# Match makeHeatmap(margin = 0), independently for error and CV. Use unrounded
+# values, ignore missing cells, and use the lightest shade for a constant block.
+for (columns in list(1:5, 6:10)) {
+  block <- overview_values[, columns, drop = FALSE]
+  present <- is.finite(block)
+  if (any(present)) {
+    limits <- range(block[present])
+    shades <- matrix(NA_integer_, nrow(block), ncol(block))
+    shades[present] <- if (diff(limits) == 0) 1L else
+      1L + round((length(overview_palette) - 1) *
+                   (block[present] - limits[1]) / diff(limits))
+    overview_shades[, columns] <- shades
+  }
+}
+
+# Choose whichever of black/white has higher contrast against each background.
+overview_rgb <- t(grDevices::col2rgb(overview_palette)) / 255
+overview_linear_rgb <- ifelse(overview_rgb <= 0.04045, overview_rgb / 12.92,
+                              ((overview_rgb + 0.055) / 1.055)^2.4)
+overview_luminance <- drop(overview_linear_rgb %*% c(0.2126, 0.7152, 0.0722))
+overview_text_colors <- ifelse((overview_luminance + 0.05) / 0.05 >=
+                                1.05 / (overview_luminance + 0.05), "black", "white")
+
 overview_lines <- c(
-  "\\begingroup", "\\small\\setlength{\\tabcolsep}{5pt}",
+  "\\begingroup", "\\color{black}",
+  sprintf("\\definecolor{%s}{HTML}{%s}", overview_color_names,
+          substring(overview_palette, 2)),
+  "\\small\\setlength{\\tabcolsep}{5pt}",
   "\\begin{tabular}{lrrrrrrrrrr}", "\\toprule",
   "& \\multicolumn{5}{c}{Mean absolute relative target error (\\%)} & \\multicolumn{5}{c}{Mean coefficient of variation} \\\\",
   "\\cmidrule(lr){2-6}\\cmidrule(lr){7-11}",
@@ -158,21 +189,31 @@ overview_lines <- c(
   "\\midrule"
 )
 for (i in seq_len(nrow(overview_table))) {
-  values <- as.numeric(overview_table[i, -1])
-  cells <- ifelse(is.na(values), "\\textemdash{}", sprintf("%.2f", values))
+  values <- overview_values[i, ]
+  cells <- rep("\\textemdash{}", length(values))
+  present <- is.finite(values)
+  shades <- overview_shades[i, present]
+  cells[present] <- sprintf("\\cellcolor{%s}\\textcolor{%s}{%.2f}",
+                            overview_color_names[shades], overview_text_colors[shades],
+                            values[present])
   overview_lines <- c(overview_lines,
                       paste0(paste(c(as.character(overview_table$algorithm[i]), cells),
                                    collapse = " & "), " \\\\"))
 }
-overview_lines <- c(overview_lines, "\\bottomrule", "\\end{tabular}", "\\endgroup")
-if (anyNA(overview_table)) {
+overview_lines <- c(overview_lines, "\\bottomrule", "\\end{tabular}",
+                    paste0("\\par\\smallskip\\footnotesize Shading is scaled independently ",
+                           "within each metric: lighter = lower, darker = higher."),
+                    "\\endgroup")
+if (any(!is.finite(overview_values))) {
   overview_lines <- c(overview_lines, paste0(
     "\\par\\smallskip\\footnotesize\\textbf{REBUTTAL-DATA-PENDING:} ",
     "Dashes denote unavailable aggregates, not zero. Each aggregate requires all five target settings."))
 }
 writeLines(overview_lines, "tab/csd_overview.tex")
 rm(overview_targets, overview_datasets, overview, means, sds, overview_table,
-   overview_lines, values, cells)
+   overview_lines, values, cells, overview_palette, overview_color_names,
+   overview_values, overview_shades, overview_rgb, overview_linear_rgb,
+   overview_luminance, overview_text_colors, columns, block, present, shades, limits)
 
 rm(df, ztab, cgroup, rgroup, n.cgroup, n.rgroup, color_scale_df)
 gc()
