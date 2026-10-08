@@ -28,8 +28,12 @@ They roughly correspond to the sections of the paper:
 from the measured mean/SD data: equal-weight relative target error and CV over
 five targets, without clipping. `eval_summary.R` reads the existing CSD,
 deduplication and performance CSVs directly and writes a numerical summary
-at 2 KiB: worst-case storage/chunk-size metrics over CODE/WEB/VMB/DB and median
-throughput on RAND, matching the existing experiments. In RStudio, set the
+at 2 KiB: minimum/maximum storage savings and worst-case chunk-size metrics
+over CODE/WEB/VMB/DB, plus median
+throughput on RAND, matching the existing experiments. Grouped headers label
+Storage savings (Min., Max.) and Chunk size dist. (Max. error, Max. CV).
+Columns are ranked independently; no caption or explanatory note is generated.
+In RStudio, set the
 working directory to this `plotting/` directory, open `eval_summary.R`, and
 click **Source** (or run `source("eval_summary.R")` in the R console). Edit the
 settings at the top if needed: they default to CSD/dedup in `csv/`, performance

@@ -257,22 +257,25 @@ if (!allow_missing && (any(incomplete) || any(missing_throughput))) {
 selected$savings <- 1 - (selected$unique_chunks_size_sum + 64 * selected$chunk_count) / selected$dataset_size
 selected$error <- abs(selected$mean_chunk_size / 2048 - 1)
 selected$cv <- selected$sd_chunk_size / selected$mean_chunk_size
-metrics <- c("savings", "median_throughput_mib_s", "error", "cv")
-values <- matrix(NA_real_, nrow = length(algorithms), ncol = 4,
+metrics <- c("savings_min", "savings_max", "median_throughput_mib_s", "error", "cv")
+metric_fields <- c("savings", "savings", "median_throughput_mib_s", "error", "cv")
+higher_is_better <- c(TRUE, TRUE, TRUE, FALSE, FALSE)
+display_as_percent <- c(TRUE, TRUE, FALSE, TRUE, FALSE)
+values <- matrix(NA_real_, nrow = length(algorithms), ncol = length(metrics),
                  dimnames = list(algorithms, metrics))
-extrema <- matrix("", nrow = length(algorithms), ncol = 4,
+extrema <- matrix("", nrow = length(algorithms), ncol = length(metrics),
                   dimnames = list(algorithms, metrics))
 for (i in seq_along(algorithms)) {
   group <- selected[selected$algorithm == algorithms[i], ]
   group <- group[match(datasets, group$dataset), ]
   for (j in seq_along(metrics)) {
-    if (j == 2L) {
+    if (metrics[j] == "median_throughput_mib_s") {
       values[i, j] <- throughput$median_throughput_mib_s[i]
       next
     }
-    v <- group[[metrics[j]]]
+    v <- group[[metric_fields[j]]]
     if (all(is.finite(v))) {
-      values[i, j] <- if (j <= 2) min(v) else max(v)
+      values[i, j] <- if (metrics[j] == "savings_min") min(v) else max(v)
       extrema[i, j] <- paste(codes[v == values[i, j]], collapse = ",")
     }
   }
@@ -280,20 +283,22 @@ for (i in seq_along(algorithms)) {
 # Rank unrounded values; do not rank incomplete CDC domains or include FSC.
 ranks <- lapply(seq_along(metrics), function(j) {
   v <- values[seq_len(8), j]
-  if (anyNA(v)) numeric() else head(sort(unique(v), decreasing = j <= 2), 2)
+  if (anyNA(v)) numeric() else head(sort(unique(v), decreasing = higher_is_better[j]), 2)
 })
 lines <- c(
   "\\begingroup", "\\scriptsize\\setlength{\\tabcolsep}{3pt}",
-  "\\begin{tabular}{lrrrr}", "\\toprule",
-  "Algorithm & Min. $D_{64}$ & RAND throughput & Max. error & Max. CV \\\\",
-  "& (\\%) $\\uparrow$ & (MiB/s) $\\uparrow$ & (\\%) $\\downarrow$ & $\\downarrow$ \\\\",
+  "\\begin{tabular}{lrrrrr}", "\\toprule",
+  "Algorithm & \\multicolumn{2}{c}{Storage savings} & RAND throughput & \\multicolumn{2}{c}{Chunk size dist.} \\\\",
+  "\\cmidrule(lr){2-3}\\cmidrule(lr){5-6}",
+  "& Min. & Max. & & Max. error & Max. CV \\\\",
+  "& (\\%) $\\uparrow$ & (\\%) $\\uparrow$ & (MiB/s) $\\uparrow$ & (\\%) $\\downarrow$ & $\\downarrow$ \\\\",
   "\\midrule"
 )
 for (i in seq_along(algorithms)) {
-  cells <- character(4)
+  cells <- character(length(metrics))
   for (j in seq_along(metrics)) {
     v <- values[i, j]
-    cells[j] <- if (is.na(v)) "\\textemdash{}" else sprintf("%.2f", v * if (j %in% c(1, 3)) 100 else 1)
+    cells[j] <- if (is.na(v)) "\\textemdash{}" else sprintf("%.2f", v * if (display_as_percent[j]) 100 else 1)
     rank <- match(v, ranks[[j]])
     if (i <= 8 && !is.na(rank)) {
       cells[j] <- paste0(if (rank == 1) "\\textbf{" else "\\underline{", cells[j], "}")
@@ -302,14 +307,9 @@ for (i in seq_along(algorithms)) {
   }
   lines <- c(lines, paste0(paste(c(labels[i], cells), collapse = " & "), " \\\\"))
 }
-lines <- c(lines, "\\bottomrule", "\\end{tabular}", "\\endgroup",
-           paste0("\\par\\smallskip\\footnotesize Superscripts identify every dataset attaining the extremum: ",
-                  "C = CODE, W = WEB, V = VMB, D = DB. Throughput is the median on RAND. Bold: best; underline: second distinct value ",
-                  "among the eight CDC algorithms, retaining ties in unrounded values. Arrows indicate ",
-                  "preferred direction. Ranking is withheld for any incomplete metric."))
+lines <- c(lines, "\\bottomrule", "\\end{tabular}", "\\endgroup")
 if (anyNA(values)) {
-  lines <- c(lines, paste0("\\par\\smallskip\\footnotesize\\textbf{REBUTTAL-DATA-PENDING:} ",
-                          "Dashes denote unavailable values, not zero. Storage and chunk-size extrema require all four realistic datasets; throughput requires RAND timings."))
+  lines <- c(lines, "% REBUTTAL-DATA-PENDING: missing values; see the audit for coverage.")
 }
 dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
 writeLines(lines, output_path)
