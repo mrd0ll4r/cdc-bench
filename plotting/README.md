@@ -29,7 +29,14 @@ from the measured mean/SD data: equal-weight relative target error and CV over
 five targets, without clipping. `eval_summary.R` reads the existing CSD,
 deduplication and performance CSVs directly and writes a numerical summary
 at 2 KiB: worst-case storage/chunk-size metrics over CODE/WEB/VMB/DB and median
-throughput on RAND, matching the existing experiments. From this directory, run
+throughput on RAND, matching the existing experiments. In RStudio, set the
+working directory to this `plotting/` directory, open `eval_summary.R`, and
+click **Source** (or run `source("eval_summary.R")` in the R console). Edit the
+settings at the top if needed: they default to CSD/dedup in `csv/`, performance
+in `../csv/`, and output in `tab/summary.tex`. Missing packages can be installed
+in the R console with `renv::install(c("DBI", "duckdb"))`.
+
+For command-line use, from this directory run
 `Rscript eval_summary.R` to use `csv/`, like the other evaluation scripts.
 Pass a different input directory explicitly only if the experiment files are
 stored elsewhere. If CSD/dedup files are in `csv/` and timings in `../csv/`, run

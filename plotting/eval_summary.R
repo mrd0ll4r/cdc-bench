@@ -1,40 +1,45 @@
 # Table X directly from the existing experiment CSVs (plain or gzip).
-# From plotting/: Rscript eval_summary.R
-# Keep startup profiles enabled so .Rprofile activates the renv library.
-# Defaults: csv/ and tab/summary.tex. Requires DBI and duckdb.
-# Optional: --allow-missing (review only), --include-fsc (unranked reference).
+# In RStudio: set the working directory to plotting/, then click Source.
+# Edit these settings for your input layout. Requires DBI and duckdb.
+csv_dir <- "csv"
+perf_dir <- "../csv"
+output_path <- "tab/summary.tex"
+allow_missing <- FALSE  # TRUE only for review placeholders
+include_fsc <- FALSE    # TRUE adds an unranked FSC reference
 
-args <- commandArgs(trailingOnly = TRUE)
-usage <- "Usage: Rscript eval_summary.R [CSV_DIR [OUTPUT.tex]] [--perf-dir DIR] [--allow-missing] [--include-fsc]"
-if ("--help" %in% args) {
-  cat(usage, "\nReads csd_*.csv[.gz], dedup_*.csv[.gz], and perf_*.csv[.gz].\n",
-      "Defaults: CSV_DIR=csv, OUTPUT.tex=tab/summary.tex; performance files use CSV_DIR unless --perf-dir is supplied.\n")
-  quit(status = 0)
+# Command-line use remains supported. Sourcing never reads process arguments
+# or quits the R/RStudio session. CLI defaults retain the single-directory layout.
+if (!interactive() && sys.nframe() == 0L) {
+  args <- commandArgs(trailingOnly = TRUE)
+  usage <- "Usage: Rscript eval_summary.R [CSV_DIR [OUTPUT.tex]] [--perf-dir DIR] [--allow-missing] [--include-fsc]"
+  if ("--help" %in% args) {
+    cat(usage, "\nReads csd_*.csv[.gz], dedup_*.csv[.gz], and perf_*.csv[.gz].\n",
+        "Defaults: CSV_DIR=csv, OUTPUT.tex=tab/summary.tex; performance files use CSV_DIR unless --perf-dir is supplied.\n")
+    quit(status = 0)
+  }
+  allow_missing <- "--allow-missing" %in% args
+  include_fsc <- "--include-fsc" %in% args
+  paths <- args
+  perf_option <- which(paths == "--perf-dir")
+  perf_dir <- NULL
+  if (length(perf_option)) {
+    if (length(perf_option) != 1L || perf_option == length(paths) ||
+        startsWith(paths[perf_option + 1L], "--")) stop(usage)
+    perf_dir <- paths[perf_option + 1L]
+    paths <- paths[-c(perf_option, perf_option + 1L)]
+  }
+  paths <- paths[!paths %in% c("--allow-missing", "--include-fsc")]
+  if (length(paths) > 2L || any(startsWith(paths, "--"))) stop(usage)
+  csv_dir <- if (length(paths)) paths[1] else "csv"
+  if (is.null(perf_dir)) perf_dir <- csv_dir
+  output_path <- if (length(paths) > 1L) paths[2] else "tab/summary.tex"
 }
-allow_missing <- "--allow-missing" %in% args
-include_fsc <- "--include-fsc" %in% args
-paths <- args
-perf_option <- which(paths == "--perf-dir")
-perf_dir <- NULL
-if (length(perf_option)) {
-  if (length(perf_option) != 1L || perf_option == length(paths) ||
-      startsWith(paths[perf_option + 1L], "--")) stop(usage)
-  perf_dir <- paths[perf_option + 1L]
-  paths <- paths[-c(perf_option, perf_option + 1L)]
-}
-paths <- paths[!paths %in% c("--allow-missing", "--include-fsc")]
-if (length(paths) > 2L || any(startsWith(paths, "--"))) stop(usage)
-csv_dir <- if (length(paths)) paths[1] else "csv"
-if (is.null(perf_dir)) perf_dir <- csv_dir
-output_path <- if (length(paths) > 1L) paths[2] else "tab/summary.tex"
 if (!dir.exists(csv_dir)) stop(paste("Experiment directory does not exist:", csv_dir))
 if (!dir.exists(perf_dir)) stop(paste("Performance directory does not exist:", perf_dir))
 if (!requireNamespace("DBI", quietly = TRUE) || !requireNamespace("duckdb", quietly = TRUE)) {
   stop(paste0(
-    "DBI and duckdb are required in the active R library. From plotting/, run ",
-    "Rscript eval_summary.R without --vanilla or --no-init-file ",
-    "so .Rprofile activates renv. If dependencies are still missing, run ",
-    "Rscript -e 'renv::install(c(\"DBI\", \"duckdb\"))' and retry."
+    "DBI and duckdb are required in the active R library. In the R console, ",
+    "run renv::install(c(\"DBI\", \"duckdb\")) from plotting/, then source this script again."
   ), call. = FALSE)
 }
 
@@ -309,10 +314,13 @@ if (anyNA(values)) {
 dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
 writeLines(lines, output_path)
 source_files <- normalizePath(as.character(unlist(files)), mustWork = TRUE)
+audit_path <- paste0(sub("\\.tex$", "", output_path), ".audit.rds")
 saveRDS(list(input_directory = normalizePath(csv_dir),
              performance_directory = normalizePath(perf_dir),
              source_files = file.info(source_files)[, c("size", "mtime"), drop = FALSE],
              configurations = selected, throughput_configurations = throughput,
              performance_samples = as.list(perf),
              values = values, extrema = extrema),
-        paste0(sub("\\.tex$", "", output_path), ".audit.rds"))
+        audit_path)
+message("Wrote table: ", normalizePath(output_path))
+message("Wrote audit: ", normalizePath(audit_path))

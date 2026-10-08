@@ -45,6 +45,25 @@ the table contains the measured statistics, unrounded aggregates and color score
 
 ## Table X: raw experiment summary
 
+In RStudio, set the working directory to the framework's `plotting/` directory,
+open `eval_summary.R`, and click **Source**. The settings at the top are:
+
+```r
+csv_dir <- "csv"
+perf_dir <- "../csv"
+output_path <- "tab/summary.tex"
+allow_missing <- FALSE
+include_fsc <- FALSE
+```
+
+These defaults match CSD/dedup files in `plotting/csv/` and performance files
+in the repository-root `csv/`. Edit the settings for a different layout.
+Equivalently, run `source("eval_summary.R")` in the R console. Sourcing ignores
+process arguments and never exits the R session. Completion messages show the
+saved table and audit paths. If dependencies are missing, run
+`renv::install(c("DBI", "duckdb"))` in the R console, then source again.
+
+Command-line use is also supported, with the original single-directory default.
 From the framework's `plotting/` directory, use the same `csv/` input directory
 as the other evaluation scripts:
 
