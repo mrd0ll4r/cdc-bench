@@ -76,10 +76,10 @@ The output directory is created automatically. Copy the
 result into the paper's `tables/summary.tex`, or pass that path as the second
 argument. `--help` prints usage. No intermediate summary CSV is needed.
 
-The script uses the existing `readr` dependency. Run from `plotting/` without
+The script uses `DBI` and `duckdb`, also used by `eval_csd.R`. Run from `plotting/` without
 `--vanilla` or `--no-init-file` so `.Rprofile` activates the project's `renv`
-library. If `readr` is still missing, restore it and its dependencies with
-`Rscript -e 'renv::restore(packages = "readr", prompt = FALSE)'`, then retry.
+library. If either package is missing, install it in the project library with
+`Rscript -e 'renv::install(c("DBI", "duckdb"))'`, then retry.
 It accepts plain CSV and `.csv.gz` files
 with the existing experiment schemas:
 
@@ -95,9 +95,14 @@ are case-insensitive, and `random` is accepted as RAND. Other algorithms,
 targets, datasets and performance events are ignored. The existing RAND
 experiments populate the throughput column; the script starts no experiments.
 
-CSD files are streamed in batches of one million rows and combined with a
-stable pooled-variance calculation, rather than loading the entire population
-into one R vector. Terminal chunks and every duplicate occurrence count toward
+DuckDB reads the CSVs directly, including gzip files. It filters the evaluation
+domain and computes CSD `COUNT`, `SUM`, `AVG` and `STDDEV_SAMP` inside the database;
+only grouped statistics enter R. This avoids the large-file row-index failure
+in `readr::read_csv_chunked` ([readr issue #1554](https://github.com/tidyverse/readr/issues/1554)).
+The original CSV headers are checked before querying, malformed CSV records
+are rejected, and invalid selected chunk sizes cause an error rather than being
+silently omitted. Deduplication rows and timing samples are also read through
+DuckDB. Terminal chunks and every duplicate occurrence count toward
 N and input bytes. The sum of emitted chunk sizes supplies input bytes S.
 Positive byte counts in dedup outputs must match S, and input sizes must agree
 across algorithms for each dataset. RAND performance byte counts must agree

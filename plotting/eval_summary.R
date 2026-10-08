@@ -1,7 +1,7 @@
 # Table X directly from the existing experiment CSVs (plain or gzip).
 # From plotting/: Rscript eval_summary.R
 # Keep startup profiles enabled so .Rprofile activates the renv library.
-# Defaults: csv/ and tab/summary.tex. Requires the existing readr dependency.
+# Defaults: csv/ and tab/summary.tex. Requires DBI and duckdb.
 # Optional: --allow-missing (review only), --include-fsc (unranked reference).
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -29,12 +29,12 @@ if (is.null(perf_dir)) perf_dir <- csv_dir
 output_path <- if (length(paths) > 1L) paths[2] else "tab/summary.tex"
 if (!dir.exists(csv_dir)) stop(paste("Experiment directory does not exist:", csv_dir))
 if (!dir.exists(perf_dir)) stop(paste("Performance directory does not exist:", perf_dir))
-if (!requireNamespace("readr", quietly = TRUE)) {
+if (!requireNamespace("DBI", quietly = TRUE) || !requireNamespace("duckdb", quietly = TRUE)) {
   stop(paste0(
-    "readr is not available in the active R library. From plotting/, run ",
+    "DBI and duckdb are required in the active R library. From plotting/, run ",
     "Rscript eval_summary.R without --vanilla or --no-init-file ",
-    "so .Rprofile activates renv. If readr is still missing, run ",
-    "Rscript -e 'renv::restore(packages = \"readr\", prompt = FALSE)' and retry."
+    "so .Rprofile activates renv. If dependencies are still missing, run ",
+    "Rscript -e 'renv::install(c(\"DBI\", \"duckdb\"))' and retry."
   ), call. = FALSE)
 }
 
@@ -76,13 +76,6 @@ message("Performance directory: ", normalizePath(perf_dir))
 message(sprintf("Selected raw CSV files: %d CSD, %d dedup, %d performance",
                 length(files$csd), length(files$dedup), length(files$perf)))
 
-# Keep one selected record per algorithm/dataset, matching Table X's 2 KiB domain.
-select_domain <- function(x, domain = datasets) {
-  x$dataset <- toupper(x$dataset)
-  x$dataset[x$dataset == "RANDOM"] <- "RAND"
-  x[x$algorithm %in% algorithms & x$dataset %in% domain &
-      !is.na(x$target_chunk_size) & x$target_chunk_size == 2048, , drop = FALSE]
-}
 key_of <- function(x) paste(x$algorithm, x$dataset, sep = ":")
 check_integer <- function(x, field, zero = FALSE) {
   minimum <- if (zero) 0 else 1
@@ -90,94 +83,105 @@ check_integer <- function(x, field, zero = FALSE) {
     stop(paste("Invalid integer", field))
   }
 }
-read_input <- function(file, extra, callback, domain = datasets) {
-  columns <- c(keys, extra)
-  header <- names(readr::read_csv(file, n_max = 0, name_repair = "minimal",
-                                 col_types = readr::cols(.default = readr::col_character()),
-                                 show_col_types = FALSE, progress = FALSE))
-  if (anyDuplicated(header) || !all(columns %in% header)) {
-    stop(paste("Missing or duplicate columns in", file, "(required:", paste(columns, collapse = ", "), ")"))
-  }
-  types <- readr::cols(.default = readr::col_skip())
-  for (column in columns) types$cols[[column]] <- readr::col_character()
-  # Bounded memory even for CSD files larger than an R vector. Parse as text so
-  # unsupported perf events do not invalidate the task-clock measurements.
-  readr::read_csv_chunked(file, readr::SideEffectChunkCallback$new(function(x, pos) {
-    readr::stop_for_problems(x)
-    callback(select_domain(x, domain))
-  }), chunk_size = 1000000, col_types = types, progress = FALSE, show_col_types = FALSE)
-}
 csd <- new.env(parent = emptyenv())
 dedup <- new.env(parent = emptyenv())
 perf <- new.env(parent = emptyenv())
-for (file in files$csd) {
-  message("Reading CSD: ", file)
-  read_input(file, "chunk_size", function(x) {
-    for (group in split(x, key_of(x))) {
-      key <- key_of(group)[1]
-      chunks <- suppressWarnings(as.numeric(group$chunk_size))
-      check_integer(chunks, "chunk_size")
-      n <- as.double(length(chunks))
-      mu <- mean(chunks)
-      m2 <- sum((chunks - mu)^2)
-      bytes <- sum(chunks)
-      old <- csd[[key]]
-      if (!is.null(old)) {
-        if (old$file != file) stop(paste("Overlapping CSD inputs for", key, "in", old$file, "and", file))
-        # Combine within-file batches using the pooled-variance identity.
-        delta <- mu - old$mean
-        m2 <- old$m2 + m2 + delta^2 * old$n * n / (old$n + n)
-        mu <- old$mean + delta * n / (old$n + n)
-        n <- old$n + n
-        bytes <- old$bytes + bytes
-      }
-      check_integer(bytes, "CSD byte total")
-      csd[[key]] <- list(n = n, mean = mu, m2 = m2, bytes = bytes, file = file)
+local({
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  sql_strings <- function(x) paste(DBI::dbQuoteString(con, x), collapse = ", ")
+  input_query <- function(file, extra, domain = datasets) {
+    columns <- c(keys, extra)
+    # Check the original header before DuckDB can disambiguate duplicate names.
+    input <- if (endsWith(file, ".gz")) gzfile(file, "rt") else base::file(file, "rt")
+    header <- tryCatch(names(utils::read.csv(input, nrows = 0, check.names = FALSE)),
+                       finally = close(input))
+    if (anyDuplicated(header) || !all(columns %in% header)) {
+      stop(paste("Missing or duplicate columns in", file, "(required:", paste(columns, collapse = ", "), ")"))
     }
-  })
-}
-for (file in files$dedup) {
-  read_input(file, c("dataset_size", "unique_chunks_size_sum"), function(x) {
-    for (i in seq_len(nrow(x))) {
-      key <- key_of(x[i, ])[1]
-      if (!is.null(dedup[[key]])) stop(paste("Duplicate dedup result for", key))
-      size <- suppressWarnings(as.numeric(x$dataset_size[i]))
-      unique_bytes <- suppressWarnings(as.numeric(x$unique_chunks_size_sum[i]))
-      check_integer(size, "dedup dataset_size", zero = TRUE)
-      check_integer(unique_bytes, "unique_chunks_size_sum", zero = TRUE)
-      dedup[[key]] <- list(size = size, unique = unique_bytes, file = file)
-    }
-  })
-}
-for (file in files$perf) {
-  read_input(file, c("dataset_size", "iteration", "event", "value"), function(x) {
-    x <- x[!is.na(x$event) & x$event == "task-clock", , drop = FALSE]
-    for (i in seq_len(nrow(x))) {
-      key <- key_of(x[i, ])[1]
-      size <- suppressWarnings(as.numeric(x$dataset_size[i]))
-      iteration <- suppressWarnings(as.numeric(x$iteration[i]))
-      milliseconds <- suppressWarnings(as.numeric(x$value[i]))
-      check_integer(size, "perf dataset_size")
-      check_integer(iteration, "perf iteration", zero = TRUE)
-      if (!is.finite(milliseconds) || milliseconds <= 0) stop(paste("Invalid task-clock for", key))
-      old <- perf[[key]]
-      if (!is.null(old) && size != old$size) {
-        stop(sprintf(paste0("Performance byte counts disagree for %s: %.0f bytes in %s ",
-                            "(iteration %.0f), versus %.0f bytes in %s. Select matching dataset runs."),
-                     key, size, file, iteration, old$size, old$files[1]), call. = FALSE)
+    dataset_sql <- "CASE WHEN UPPER(dataset) = 'RANDOM' THEN 'RAND' ELSE UPPER(dataset) END"
+    selected_columns <- as.character(DBI::dbQuoteIdentifier(con, columns))
+    selected_columns[columns == "dataset"] <- paste(dataset_sql, "AS dataset")
+    paste0("SELECT ", paste(selected_columns, collapse = ", "),
+           " FROM read_csv_auto(", sql_strings(normalizePath(file)),
+           ", header = true, delim = ',', all_varchar = true, ignore_errors = false)",
+           " WHERE algorithm IN (", sql_strings(algorithms), ") AND ", dataset_sql,
+           " IN (", sql_strings(domain), ") AND TRY_CAST(target_chunk_size AS DOUBLE) = 2048")
+  }
+  read_input <- function(file, extra, callback, domain = datasets) {
+    # Only selected deduplication rows and timing samples cross into R.
+    callback(DBI::dbGetQuery(con, input_query(file, extra, domain)))
+  }
+  for (file in files$csd) {
+    message("Reading CSD: ", file)
+    # Aggregate inside DuckDB: raw chunk rows never become an R vector, and
+    # readr's chunked-reader row-index limit is not involved.
+    groups <- DBI::dbGetQuery(con, paste0(
+      "WITH selected AS (", input_query(file, "chunk_size"), "), ",
+      "typed AS (SELECT algorithm, dataset, TRY_CAST(chunk_size AS DOUBLE) AS chunk FROM selected), ",
+      "checked AS (SELECT *, chunk IS NOT NULL AND ISFINITE(chunk) AND chunk >= 1 ",
+      "AND chunk = FLOOR(chunk) AND chunk <= 9007199254740991 AS valid FROM typed) ",
+      "SELECT algorithm, dataset, CAST(COUNT(*) AS DOUBLE) AS n, ",
+      "BOOL_OR(NOT valid) AS invalid, ",
+      "SUM(CASE WHEN valid THEN chunk END) AS bytes, ",
+      "AVG(CASE WHEN valid THEN chunk END) AS mean, ",
+      "STDDEV_SAMP(CASE WHEN valid THEN chunk END) AS sd ",
+      "FROM checked GROUP BY algorithm, dataset"))
+    for (i in seq_len(nrow(groups))) {
+      group <- groups[i, ]
+      key <- key_of(group)
+      if (group$invalid) stop(paste("Invalid integer chunk_size for", key, "in", file))
+      if (!is.null(csd[[key]])) {
+        stop(paste("Overlapping CSD inputs for", key, "in", csd[[key]]$file, "and", file))
       }
-      # Iterations restart in each repetition file. Pool individual rates across
-      # files, as eval_perf.R does, while rejecting duplicate events within a file.
-      if (!is.null(old) && any(old$files == file & old$iterations == iteration)) {
-        stop(sprintf("Duplicate task-clock for %s in %s, iteration %.0f. Select one event per iteration.",
-                     key, file, iteration), call. = FALSE)
-      }
-      perf[[key]] <- list(size = size, files = c(old$files, file),
-                         iterations = c(old$iterations, iteration),
-                         throughput = c(old$throughput, size / (milliseconds / 1000) / 2^20))
+      check_integer(group$bytes, "CSD byte total")
+      csd[[key]] <- list(n = group$n, mean = group$mean, sd = group$sd,
+                         bytes = group$bytes, file = file)
     }
-  }, domain = "RAND")
-}
+  }
+  for (file in files$dedup) {
+    read_input(file, c("dataset_size", "unique_chunks_size_sum"), function(x) {
+      for (i in seq_len(nrow(x))) {
+        key <- key_of(x[i, ])[1]
+        if (!is.null(dedup[[key]])) stop(paste("Duplicate dedup result for", key))
+        size <- suppressWarnings(as.numeric(x$dataset_size[i]))
+        unique_bytes <- suppressWarnings(as.numeric(x$unique_chunks_size_sum[i]))
+        check_integer(size, "dedup dataset_size", zero = TRUE)
+        check_integer(unique_bytes, "unique_chunks_size_sum", zero = TRUE)
+        dedup[[key]] <- list(size = size, unique = unique_bytes, file = file)
+      }
+    })
+  }
+  for (file in files$perf) {
+    read_input(file, c("dataset_size", "iteration", "event", "value"), function(x) {
+      x <- x[!is.na(x$event) & x$event == "task-clock", , drop = FALSE]
+      for (i in seq_len(nrow(x))) {
+        key <- key_of(x[i, ])[1]
+        size <- suppressWarnings(as.numeric(x$dataset_size[i]))
+        iteration <- suppressWarnings(as.numeric(x$iteration[i]))
+        milliseconds <- suppressWarnings(as.numeric(x$value[i]))
+        check_integer(size, "perf dataset_size")
+        check_integer(iteration, "perf iteration", zero = TRUE)
+        if (!is.finite(milliseconds) || milliseconds <= 0) stop(paste("Invalid task-clock for", key))
+        old <- perf[[key]]
+        if (!is.null(old) && size != old$size) {
+          stop(sprintf(paste0("Performance byte counts disagree for %s: %.0f bytes in %s ",
+                              "(iteration %.0f), versus %.0f bytes in %s. Select matching dataset runs."),
+                       key, size, file, iteration, old$size, old$files[1]), call. = FALSE)
+        }
+        # Iterations restart in each repetition file. Pool individual rates across
+        # files, as eval_perf.R does, while rejecting duplicate events within a file.
+        if (!is.null(old) && any(old$files == file & old$iterations == iteration)) {
+          stop(sprintf("Duplicate task-clock for %s in %s, iteration %.0f. Select one event per iteration.",
+                       key, file, iteration), call. = FALSE)
+        }
+        perf[[key]] <- list(size = size, files = c(old$files, file),
+                           iterations = c(old$iterations, iteration),
+                           throughput = c(old$throughput, size / (milliseconds / 1000) / 2^20))
+      }
+    }, domain = "RAND")
+  }
+})
 
 selected <- expand.grid(algorithm = algorithms, dataset = datasets,
                         target_chunk_size = 2048, stringsAsFactors = FALSE)
@@ -189,7 +193,7 @@ for (i in seq_len(nrow(selected))) {
   dedup_row <- dedup[[key]]
   if (!is.null(csd_row)) {
     selected$mean_chunk_size[i] <- csd_row$mean
-    selected$sd_chunk_size[i] <- if (csd_row$n > 1) sqrt(csd_row$m2 / (csd_row$n - 1)) else NA_real_
+    selected$sd_chunk_size[i] <- csd_row$sd
     selected$dataset_size[i] <- csd_row$bytes
     selected$chunk_count[i] <- csd_row$n
     selected$csd_file[i] <- csd_row$file

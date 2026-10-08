@@ -37,8 +37,10 @@ stored elsewhere. If CSD/dedup files are in `csv/` and timings in `../csv/`, run
 directories and input counts. Only RAND timings are used;
 `--allow-missing` produces a review table with dashes for incomplete metrics.
 Keep startup profiles enabled: `--vanilla`
-skips the `.Rprofile` that activates this project's `renv` library. If `readr`
-is missing after activation, run
-`Rscript -e 'renv::restore(packages = "readr", prompt = FALSE)'` from this directory.
+skips the `.Rprofile` that activates this project's `renv` library. The summary
+uses `DBI` and `duckdb`, as does the CSD evaluation. If they are missing, run
+`Rscript -e 'renv::install(c("DBI", "duckdb"))'` from this directory.
+DuckDB reads the compressed CSVs and aggregates CSD counts, bytes, means and
+sample SDs directly; raw chunk rows are never loaded into R.
 No intermediate summary CSV is needed. See
 [quantitative table definitions and input requirements](../analysis/quantitative_tables.md).
