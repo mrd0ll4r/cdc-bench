@@ -99,7 +99,8 @@ DuckDB reads the CSVs directly, including gzip files. It filters the evaluation
 domain and computes CSD `COUNT`, `SUM`, `AVG` and `STDDEV_SAMP` inside the database;
 only grouped statistics enter R. This avoids the large-file row-index failure
 in `readr::read_csv_chunked` ([readr issue #1554](https://github.com/tidyverse/readr/issues/1554)).
-The original CSV headers are checked before querying, malformed CSV records
+Only the first line is read into R to check the original CSV header; the data
+body is read exclusively by DuckDB. Malformed CSV records
 are rejected, and invalid selected chunk sizes cause an error rather than being
 silently omitted. Deduplication rows and timing samples are also read through
 DuckDB. Terminal chunks and every duplicate occurrence count toward

@@ -92,10 +92,13 @@ local({
   sql_strings <- function(x) paste(DBI::dbQuoteString(con, x), collapse = ", ")
   input_query <- function(file, extra, domain = datasets) {
     columns <- c(keys, extra)
-    # Check the original header before DuckDB can disambiguate duplicate names.
+    # Read only the header before DuckDB can disambiguate duplicate names.
+    # read.csv(connection, nrows = 0) can still scan/type-convert the data body.
     input <- if (endsWith(file, ".gz")) gzfile(file, "rt") else base::file(file, "rt")
-    header <- tryCatch(names(utils::read.csv(input, nrows = 0, check.names = FALSE)),
-                       finally = close(input))
+    header_line <- tryCatch(readLines(input, n = 1L, warn = FALSE), finally = close(input))
+    if (!length(header_line)) stop(paste("Empty CSV input:", file))
+    header <- names(utils::read.csv(text = header_line, colClasses = "character",
+                                   check.names = FALSE))
     if (anyDuplicated(header) || !all(columns %in% header)) {
       stop(paste("Missing or duplicate columns in", file, "(required:", paste(columns, collapse = ", "), ")"))
     }
