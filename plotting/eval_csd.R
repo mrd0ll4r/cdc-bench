@@ -124,84 +124,113 @@ for (col_name in c("mean_512", "sd_512", "mean_1024", "sd_1024", "mean_2048", "s
 
 writeLines(capture.output(ztab), "tab/csd_means_sd_full.tex")
 
-### Overview table
+### Overview table: equal-weight relative target error and CV, without clipping
 
-get_cell_color <- function(att, algo, ds) {
-  # Filtering the dataframe based on algorithm and dataset
-  means_df <- color_scale_df %>% 
-    filter(algorithm == algo, dataset == ds)
-  
-  # Applying conditional selection of columns based on the algorithm name
-  if (any(grepl("^gear", algo))) {
-    # If the algorithm name starts with "gear", select columns starting with 'att'
-    # but not ending in '770' or '5482'
-    means_df <- means_df %>%
-      select(matches(paste0("^", att)))
-  } else {
-    # Otherwise, just select columns that start with 'att'
-    means_df <- means_df %>%
-      select(matches(paste0("^", att)))
+overview_targets <- c(512, 1024, 2048, 4096, 8192)
+overview_datasets <- c("random", "code", "web", "vmb", "db")
+overview <- expand_grid(algorithm = ALGORITHM_ORDER, dataset = overview_datasets) %>%
+  left_join(df, by = c("algorithm", "dataset"))
+
+# Use the original measured means/SDs, not the detailed table's color scores.
+means <- as.matrix(overview[paste0("mean_", overview_targets)])
+sds <- as.matrix(overview[paste0("sd_", overview_targets)])
+means[!is.finite(means) | means <= 0] <- NA_real_
+sds[!is.finite(sds) | sds < 0] <- NA_real_
+overview$error <- rowMeans(abs(sweep(means, 2, overview_targets, "/") - 1))
+overview$cv <- rowMeans(sds / means)
+# Preserve the original color scores separately from the displayed metrics.
+# Clip each target's absolute error in bytes at that target and half-CV at 1,
+# then average across targets (not clipping the aggregate after averaging).
+overview$error_color <- rowMeans(pmin(abs(sweep(means, 2, overview_targets, "-")),
+                                      rep(overview_targets, each = nrow(means))))
+overview$cv_color <- rowMeans(pmin(sds / (2 * means), 1))
+# rowMeans deliberately propagates NA: an aggregate requires all five targets.
+saveRDS(list(measured = df, overview = overview), "tab/csd_overview.audit.rds")
+
+overview_table <- overview %>%
+  select(algorithm, dataset, error, cv) %>%
+  mutate(error = error * 100) %>%
+  pivot_wider(names_from = dataset, values_from = c(error, cv)) %>%
+  select(algorithm, all_of(paste0("error_", overview_datasets)),
+         all_of(paste0("cv_", overview_datasets))) %>%
+  rename_algorithms()
+
+overview_color_table <- overview %>%
+  select(algorithm, dataset, error_color, cv_color) %>%
+  pivot_wider(names_from = dataset, values_from = c(error_color, cv_color)) %>%
+  select(all_of(paste0("error_color_", overview_datasets)),
+         all_of(paste0("cv_color_", overview_datasets)))
+overview_color_values <- as.matrix(overview_color_table)
+overview_palette <- RColorBrewer::brewer.pal(9, "Reds")
+overview_color_names <- paste0("csdoverview", seq_along(overview_palette))
+overview_values <- as.matrix(overview_table[, -1])
+overview_shades <- matrix(NA_integer_, nrow(overview_values), ncol(overview_values))
+limits <- c(NA_real_, NA_real_)
+# Match the original makeHeatmap(margin = 0) on the clipped color scores,
+# independently for error and CV. Missing cells remain uncolored.
+for (columns in list(1:5, 6:10)) {
+  block <- overview_color_values[, columns, drop = FALSE]
+  present <- is.finite(block)
+  if (any(present)) {
+    limits <- range(block[present])
+    shades <- matrix(NA_integer_, nrow(block), ncol(block))
+    shades[present] <- if (diff(limits) == 0) 1L else
+      1L + round((length(overview_palette) - 1) *
+                   (block[present] - limits[1]) / diff(limits))
+    overview_shades[, columns] <- shades
   }
-  
-  # Calculating the mean of the selected columns, row-wise, then ungroup
-  means_df <- means_df %>%
-    rowwise() %>%
-    mutate(row_mean = mean(c_across(matches(paste0("^", att))), na.rm = TRUE)) %>%
-    ungroup()
-  
-  # Return the overall mean of the row means
-  mean(means_df$row_mean, na.rm = TRUE)
 }
 
+# Choose whichever of black/white has higher contrast against each background.
+overview_rgb <- t(grDevices::col2rgb(overview_palette)) / 255
+overview_linear_rgb <- ifelse(overview_rgb <= 0.04045, overview_rgb / 12.92,
+                              ((overview_rgb + 0.055) / 1.055)^2.4)
+overview_luminance <- drop(overview_linear_rgb %*% c(0.2126, 0.7152, 0.0722))
+overview_text_colors <- ifelse((overview_luminance + 0.05) / 0.05 >=
+                                1.05 / (overview_luminance + 0.05), "black", "white")
 
-algorithms <- list('rabin_32', 'buzhash_32', 'gear', "ae", "ram", "pci", "mii", "seq-cdc")
-
-mean_random <- numeric(length(algorithms))
-mean_code <- numeric(length(algorithms))
-mean_web <- numeric(length(algorithms))
-mean_vmb <- numeric(length(algorithms))
-mean_db <- numeric(length(algorithms))
-sd_random <- numeric(length(algorithms))
-sd_code <- numeric(length(algorithms))
-sd_web <- numeric(length(algorithms))
-sd_vmb <- numeric(length(algorithms))
-sd_db <- numeric(length(algorithms))
-
-for (i in seq_along(algorithms)) {
-  algo <- algorithms[[i]]
-  
-  mean_random[i] <- get_cell_color("mean", algo, "random")
-  mean_code[i] <- get_cell_color("mean", algo, "code")
-  mean_web[i] <- get_cell_color("mean", algo, "web")
-  mean_vmb[i] <- get_cell_color("mean", algo, "vmb")
-  mean_db[i] <- get_cell_color("mean", algo, "db")
-  sd_random[i] <- get_cell_color("sd", algo, "random")
-  sd_code[i] <- get_cell_color("sd", algo, "code")
-  sd_web[i] <- get_cell_color("sd", algo, "web")
-  sd_vmb[i] <- get_cell_color("sd", algo, "vmb")
-  sd_db[i] <- get_cell_color("sd", algo, "db")
+overview_lines <- c(
+  "\\begingroup", "\\color{black}",
+  sprintf("\\definecolor{%s}{HTML}{%s}", overview_color_names,
+          substring(overview_palette, 2)),
+  "\\scriptsize\\setlength{\\tabcolsep}{1.5pt}",
+  "\\begin{adjustbox}{max width=\\columnwidth}",
+  "\\begin{tabular}{lrrrrrrrrrr}", "\\toprule",
+  "& \\multicolumn{5}{c}{Mean target error (\\%)} & \\multicolumn{5}{c}{Mean CV} \\\\",
+  "\\cmidrule(lr){2-6}\\cmidrule(lr){7-11}",
+  paste0("Alg. & ", paste(sprintf("\\rotatebox{45}{%s}",
+                                  rep(c("RAND", "CODE", "WEB", "VMB", "DB"), 2)),
+                          collapse = " & "), " \\\\"),
+  "\\midrule"
+)
+for (i in seq_len(nrow(overview_table))) {
+  values <- overview_values[i, ]
+  cells <- rep("\\textemdash{}", length(values))
+  present <- is.finite(values)
+  shades <- overview_shades[i, present]
+  cells[present] <- sprintf("\\cellcolor{%s}\\textcolor{%s}{%.2f}",
+                            overview_color_names[shades], overview_text_colors[shades],
+                            values[present])
+  overview_lines <- c(overview_lines,
+                      paste0(paste(c(as.character(overview_table$algorithm[i]), cells),
+                                   collapse = " & "), " \\\\"))
 }
-
-# Create the dataframe without the algorithms column
-df <- data.frame(mean_random, mean_code, mean_web, mean_vmb, mean_db,
-                 sd_random, sd_code, sd_web, sd_vmb, sd_db, stringsAsFactors = FALSE)
-
-# Add the algorithms as a list column explicitly
-df$algorithm <- algorithms %>% sapply(function(x) paste(x, collapse = ", "))
-df <- df[, c("algorithm", "mean_random", "mean_code", "mean_web", "mean_vmb", "mean_db",
-             "sd_random", "sd_code", "sd_web", "sd_vmb", "sd_db")]
-
-cgroup=c("Algorithms", "Mean", "SD")
-n.cgroup=c(1, 5, 5)
-
-ztab <- df %>% 
-  rename_algorithms() %>% 
-  ztable() %>%
-  addcgroup(cgroup=cgroup, n.cgroup=n.cgroup) %>% 
-  makeHeatmap(margin=0, cols=c(2,3,4,5,6)) %>% 
-  makeHeatmap(margin=0, cols=c(7,8,9,10,11))
-
-writeLines(capture.output(ztab), "tab/csd_overview.tex")
+overview_lines <- c(overview_lines, "\\bottomrule", "\\end{tabular}", "\\end{adjustbox}",
+                    paste0("\\par\\smallskip\\scriptsize Colors retain the original clipped ",
+                           "scores; displayed values are unclipped. Lighter = lower color score, ",
+                           "darker = higher, scaled separately within each block."),
+                    "\\endgroup")
+if (any(!is.finite(overview_values))) {
+  overview_lines <- c(overview_lines, paste0(
+    "\\par\\smallskip\\footnotesize\\textbf{REBUTTAL-DATA-PENDING:} ",
+    "Dashes denote unavailable aggregates, not zero. Each aggregate requires all five target settings."))
+}
+writeLines(overview_lines, "tab/csd_overview.tex")
+rm(overview_targets, overview_datasets, overview, means, sds, overview_table,
+   overview_lines, values, cells, overview_palette, overview_color_names,
+   overview_values, overview_shades, overview_rgb, overview_linear_rgb,
+   overview_color_table, overview_color_values,
+   overview_luminance, overview_text_colors, columns, block, present, shades, limits)
 
 rm(df, ztab, cgroup, rgroup, n.cgroup, n.rgroup, color_scale_df)
 gc()
