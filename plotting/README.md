@@ -30,8 +30,10 @@ five targets, without clipping. `eval_summary.R` reads the existing CSD,
 deduplication and performance CSVs directly and writes a numerical summary
 at 2 KiB: minimum/maximum storage savings and worst-case chunk-size metrics
 over CODE/WEB/VMB/DB, plus median
-throughput on RAND, matching the existing experiments. Grouped headers label
-Storage savings (Min., Max.) and Chunk size dist. (Max. error, Max. CV).
+throughput on RAND, matching the existing experiments. Columns appear as
+Throughput, Chunk Sizes (Max. Err., Max. CV), then Storage Savings (Min., Max.).
+Error and savings use fractions with two decimals; throughput uses MiB/s.
+The table inherits the document font size and uses 4 pt column padding.
 Columns are ranked independently; no caption or explanatory note is generated.
 In RStudio, set the
 working directory to this `plotting/` directory, open `eval_summary.R`, and

@@ -154,17 +154,20 @@ Independent complete metrics remain available. Add `--include-fsc` to include a
 complete FSC reference outside the eight-algorithm CDC rankings. Missing inputs
 fail by default and the error names the incomplete configurations.
 
-Table X groups the minimum and maximum `1 - (unique_bytes + 64*chunk_count)/input_bytes`
-under **Storage savings**, and maximum
-absolute relative target error, and maximum CV across CODE/WEB/VMB/DB, alongside
-median throughput on RAND. **Chunk size dist.** groups **Max. error** and
-**Max. CV**. The 64-byte allowance per emitted chunk is illustrative;
+Table X orders its columns as **Throughput** (median on RAND in MiB/s),
+**Chunk Sizes** (**Max. Err.**, **Max. CV**), then **Storage Savings**
+(**Min.**, **Max.**). Chunk-size and savings extrema use CODE/WEB/VMB/DB.
+Storage savings are `1 - (unique_bytes + 64*chunk_count)/input_bytes`.
+Both savings and relative target error are displayed as fractions, not
+percentages: 94.88% error becomes 0.95, and 33% savings becomes 0.33.
+CV remains dimensionless. The 64-byte allowance per emitted chunk is illustrative;
 negative savings are retained. Superscripts identify all datasets attaining an
 extremum. Best and second distinct CDC values are bold and underlined, with ties
 retained; FSC does not affect rankings. Each column is ranked independently:
 higher is better for both savings columns and throughput, lower for error and CV.
 The generated TeX contains only the table, without a caption or explanatory
-note. In review mode, the pending-data marker is a non-rendered TeX comment.
+note. It inherits the surrounding font size and uses 4 pt column padding.
+In review mode, the pending-data marker is a non-rendered TeX comment.
 Calculations use R double precision and
 round only for the two-decimal display. Ties use equality of unrounded values.
 The accompanying `.audit.rds` records source-file paths, sizes and modification

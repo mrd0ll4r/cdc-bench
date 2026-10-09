@@ -257,10 +257,9 @@ if (!allow_missing && (any(incomplete) || any(missing_throughput))) {
 selected$savings <- 1 - (selected$unique_chunks_size_sum + 64 * selected$chunk_count) / selected$dataset_size
 selected$error <- abs(selected$mean_chunk_size / 2048 - 1)
 selected$cv <- selected$sd_chunk_size / selected$mean_chunk_size
-metrics <- c("savings_min", "savings_max", "median_throughput_mib_s", "error", "cv")
-metric_fields <- c("savings", "savings", "median_throughput_mib_s", "error", "cv")
-higher_is_better <- c(TRUE, TRUE, TRUE, FALSE, FALSE)
-display_as_percent <- c(TRUE, TRUE, FALSE, TRUE, FALSE)
+metrics <- c("median_throughput_mib_s", "error", "cv", "savings_min", "savings_max")
+metric_fields <- c("median_throughput_mib_s", "error", "cv", "savings", "savings")
+higher_is_better <- c(TRUE, FALSE, FALSE, TRUE, TRUE)
 values <- matrix(NA_real_, nrow = length(algorithms), ncol = length(metrics),
                  dimnames = list(algorithms, metrics))
 extrema <- matrix("", nrow = length(algorithms), ncol = length(metrics),
@@ -286,19 +285,20 @@ ranks <- lapply(seq_along(metrics), function(j) {
   if (anyNA(v)) numeric() else head(sort(unique(v), decreasing = higher_is_better[j]), 2)
 })
 lines <- c(
-  "\\begingroup", "\\scriptsize\\setlength{\\tabcolsep}{3pt}",
-  "\\begin{tabular}{lrrrrr}", "\\toprule",
-  "Algorithm & \\multicolumn{2}{c}{Storage savings} & RAND throughput & \\multicolumn{2}{c}{Chunk size dist.} \\\\",
-  "\\cmidrule(lr){2-3}\\cmidrule(lr){5-6}",
-  "& Min. & Max. & & Max. error & Max. CV \\\\",
-  "& (\\%) $\\uparrow$ & (\\%) $\\uparrow$ & (MiB/s) $\\uparrow$ & (\\%) $\\downarrow$ & $\\downarrow$ \\\\",
+  "\\begingroup",
+  "\\setlength{\\tabcolsep}{4pt}",
+  "\\begin{tabular}{lrrrrr}",
+  "\\toprule",
+  "Algorithm & Throughput & \\multicolumn{2}{c}{Chunk Sizes} & \\multicolumn{2}{c}{Storage Savings} \\\\",
+  "\\cmidrule(lr){3-4}\\cmidrule(lr){5-6}",
+  " & (MiB/s) $\\uparrow$ & Max. Err. $\\downarrow$ & Max. CV $\\downarrow$ & Min. $\\uparrow$ & Max. $\\uparrow$ \\\\",
   "\\midrule"
 )
 for (i in seq_along(algorithms)) {
   cells <- character(length(metrics))
   for (j in seq_along(metrics)) {
     v <- values[i, j]
-    cells[j] <- if (is.na(v)) "\\textemdash{}" else sprintf("%.2f", v * if (display_as_percent[j]) 100 else 1)
+    cells[j] <- if (is.na(v)) "\\textemdash{}" else sprintf("%.2f", v)
     rank <- match(v, ranks[[j]])
     if (i <= 8 && !is.na(rank)) {
       cells[j] <- paste0(if (rank == 1) "\\textbf{" else "\\underline{", cells[j], "}")
